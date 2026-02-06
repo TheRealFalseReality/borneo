@@ -34,13 +34,17 @@ esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
   comment: "Borneo Aquarium LED Controller with 6-channel PWM"
-  platform: ESP32
-  board: esp32-c3-devkitm-1
   
   # Project information
   project:
     name: "borneo-iot.lyfi"
     version: ${hw_version}
+
+# ESP32 platform configuration
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: arduino
 
 # Enable logging
 logger:
@@ -114,7 +118,7 @@ sensor:
   - platform: adc
     id: ntc_source
     pin: GPIO${ntc_adc_gpio}
-    attenuation: 11db
+    attenuation: 12db
     update_interval: 1s
     filters:
       - multiply: 3.3  # ADC voltage reference
@@ -133,9 +137,6 @@ sensor:
       b_constant: 3950
       reference_temperature: 25°C
       reference_resistance: 10kOhm
-    on_value:
-      then:
-        - component.update: thermal_controller
 
   # WiFi signal strength
   - platform: wifi_signal
@@ -181,56 +182,48 @@ output:
     id: led_ch0_output
     pin: ${led_ch0_gpio}
     frequency: ${pwm_frequency}
-    bit_depth: 12  # 12-bit resolution (0-4095) matching ESP-IDF LEDC_TIMER_12_BIT
     
   # LED Channel 1 - Green
   - platform: ledc
     id: led_ch1_output
     pin: ${led_ch1_gpio}
     frequency: ${pwm_frequency}
-    bit_depth: 12
     
   # LED Channel 2 - Blue
   - platform: ledc
     id: led_ch2_output
     pin: ${led_ch2_gpio}
     frequency: ${pwm_frequency}
-    bit_depth: 12
     
   # LED Channel 3 - Warm White
   - platform: ledc
     id: led_ch3_output
     pin: ${led_ch3_gpio}
     frequency: ${pwm_frequency}
-    bit_depth: 12
     
   # LED Channel 4 - UV/Purple
   - platform: ledc
     id: led_ch4_output
     pin: ${led_ch4_gpio}
     frequency: ${pwm_frequency}
-    bit_depth: 12
     
   # LED Channel 5 - Cool White
   - platform: ledc
     id: led_ch5_output
     pin: ${led_ch5_gpio}
     frequency: ${pwm_frequency}
-    bit_depth: 12
   
   # Fan PWM control
   - platform: ledc
     id: fan_pwm_output
     pin: ${fan_pwm_gpio}
     frequency: 25000 Hz  # 25kHz for fan control
-    bit_depth: 8  # 8-bit resolution for fan
     
   # Fan voltage regulator control
   - platform: ledc
     id: fan_vreg_output
     pin: ${fan_vreg_gpio}
     frequency: 25000 Hz
-    bit_depth: 8
 
 # Light entities for LED channels
 light:
@@ -448,7 +441,7 @@ switch:
     name: "Enable Thermal Control"
     id: thermal_control_enabled
     optimistic: true
-    initial_state: true
+    restore_mode: RESTORE_DEFAULT_ON
     icon: "mdi:thermometer-auto"
     
   - platform: template
@@ -464,10 +457,10 @@ switch:
 
 # Intervals for periodic tasks
 interval:
-  # Thermal controller update (matches PID_PERIOD from ESP-IDF: 1000ms)
+  # Thermal controller update (every second)
   - interval: 1s
     then:
-      - component.update: thermal_controller
+      - script.execute: thermal_controller
       
   # LED update task (matches LED_UPDATE_PERIOD_US: 10ms)
   - interval: 10ms
