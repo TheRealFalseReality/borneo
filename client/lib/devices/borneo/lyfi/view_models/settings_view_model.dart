@@ -8,15 +8,13 @@ import 'package:cancellation_token/cancellation_token.dart';
 import 'package:flutter_gettext/flutter_gettext/gettext_localizations.dart';
 import 'package:geolocator/geolocator.dart';
 
-import 'package:latlong2/latlong.dart';
-
 class SettingsViewModel extends BaseLyfiDeviceViewModel {
   final Uri address;
   final GeneralBorneoDeviceStatus borneoStatus;
   final GeneralBorneoDeviceInfo borneoInfo;
   final LyfiDeviceInfo ledInfo;
   final LyfiDeviceStatus ledStatus;
-  final GettextLocalizations _gt;
+  GettextLocalizations get _gt => super.gt;
 
   ILyfiDeviceApi get api => deviceManager.getBoundDevice(deviceID).api<ILyfiDeviceApi>();
 
@@ -53,12 +51,11 @@ class SettingsViewModel extends BaseLyfiDeviceViewModel {
   bool get canUpdatePowerBehavior => !isBusy && isOnline;
   bool get isControllerSettingsAvailable => borneoInfo.productMode == ProductMode.standalone;
 
-  SettingsViewModel(
-    this._gt, {
-    required super.deviceID,
+  SettingsViewModel({
     required super.deviceManager,
     required super.globalEventBus,
     required super.notification,
+    required super.wotThing,
     required this.address,
     required this.borneoStatus,
     required this.borneoInfo,
@@ -66,6 +63,8 @@ class SettingsViewModel extends BaseLyfiDeviceViewModel {
     required this.ledStatus,
     required GeoLocation? location,
     required PowerBehavior powerBehavior,
+    required super.gt,
+    super.logger,
   }) : _location = location,
        _powerBehavior = powerBehavior,
        _timezone = borneoStatus.timezone;
@@ -80,11 +79,10 @@ class SettingsViewModel extends BaseLyfiDeviceViewModel {
     _manualFanPower = await api.getFanManualPower(boundDevice!.device);
   }
 
-  Future<void> updateGeoLocation(LatLng location, {CancellationToken? cancel}) async {
+  Future<void> updateGeoLocation(GeoLocation location, {CancellationToken? cancel}) async {
     try {
-      final loc = GeoLocation(lat: location.latitude, lng: location.longitude);
-      await super.lyfiDeviceApi.setLocation(super.boundDevice!.device, loc, cancelToken: cancel);
-      _location = loc;
+      await super.lyfiDeviceApi.setLocation(super.boundDevice!.device, location, cancelToken: cancel);
+      _location = location;
       notification.showSuccess(_gt.translate("Location updated successfully"));
     } catch (e) {
       notification.showError(_gt.translate("Failed to update device location: $e"));
@@ -261,6 +259,20 @@ class SettingsViewModel extends BaseLyfiDeviceViewModel {
       notification.showSuccess(_gt.translate("Device restored to factory settings"));
     } catch (e) {
       notification.showError(_gt.translate("Failed to restore device to factory settings: $e"));
+    } finally {
+      isBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> networkReset() async {
+    isBusy = true;
+    notifyListeners();
+    try {
+      await api.networkReset(boundDevice!.device, cancelToken: masterCancellation);
+      notification.showSuccess(_gt.translate("Device network settings reset"));
+    } catch (e) {
+      notification.showError(_gt.translate("Failed to reset device network settings: $e"));
     } finally {
       isBusy = false;
       notifyListeners();

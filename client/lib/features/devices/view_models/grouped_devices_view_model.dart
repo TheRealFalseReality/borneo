@@ -7,6 +7,7 @@ import 'package:borneo_app/core/models/scene_entity.dart';
 import 'package:borneo_app/core/services/devices/device_module_registry.dart';
 import 'package:event_bus/event_bus.dart';
 import 'package:cancellation_token/cancellation_token.dart';
+import 'package:flutter/widgets.dart';
 import 'package:synchronized/synchronized.dart';
 
 import 'package:borneo_app/features/devices/models/device_group_entity.dart';
@@ -35,7 +36,9 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
   // Getter for error message
 
   bool get isEmpty => _groups.isEmpty;
-  bool get hasNoDevices => _groups.every((g) => g.devices.isEmpty);
+  // True only when there are no user-created groups AND no devices anywhere.
+  // When named groups exist (even without devices) we still show the group list.
+  bool get hasNoDevices => !_groups.any((g) => !g.isDummy) && _groups.every((g) => g.devices.isEmpty);
   bool get isLoading => isBusy;
 
   // Getter for users list
@@ -49,8 +52,11 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
   late final StreamSubscription<NewDeviceEntityAddedEvent> _deviceAddedEventSub;
   late final StreamSubscription<DeviceEntityDeletedEvent> _deviceDeletedEventSub;
   late final StreamSubscription<CurrentSceneChangedEvent> _currentSceneChangedEventSub;
+  // we now also listen for SceneUpdatedEvent so that if the current scene's
+  // properties (e.g. imagePath/name) are changed by the editor, we can
+  // notify listeners and update any dependent UI.
+  late final StreamSubscription<SceneUpdatedEvent> _sceneUpdatedEventSub;
 
-  // Device group event subscriptions
   late final StreamSubscription<DeviceGroupCreatedEvent> _deviceGroupCreatedEventSub;
   late final StreamSubscription<DeviceGroupDeletedEvent> _deviceGroupDeletedEventSub;
   late final StreamSubscription<DeviceGroupUpdatedEvent> _deviceGroupUpdatedEventSub;
@@ -62,6 +68,7 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
     this._deviceManager,
     this._deviceModuleRegistry, {
     required this.clock,
+    required super.gt,
     super.logger,
   }) {
     super.globalEventBus = globalEventBus;
@@ -72,6 +79,7 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
       (event) => _onDeviceDeleted(event),
     );
     _currentSceneChangedEventSub = super.globalEventBus.on<CurrentSceneChangedEvent>().listen(_onCurrentSceneChanged);
+    _sceneUpdatedEventSub = super.globalEventBus.on<SceneUpdatedEvent>().listen(_onSceneUpdated);
 
     _deviceGroupCreatedEventSub = super.globalEventBus.on<DeviceGroupCreatedEvent>().listen(_onDeviceGroupCreated);
 
@@ -103,6 +111,7 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
     _deviceGroupCreatedEventSub.cancel();
     _deviceGroupDeletedEventSub.cancel();
     _deviceGroupUpdatedEventSub.cancel();
+    _sceneUpdatedEventSub.cancel();
 
     super.dispose();
   }
@@ -132,7 +141,6 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
 
   void _clearAllItems() {
     for (final g in _groups) {
-      g.clearDevices();
       g.dispose();
     }
     _groups.clear();
@@ -147,9 +155,12 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
     final newDummyGroup = GroupViewModel(
       DeviceGroupEntity(id: '', sceneID: _sceneManager.current.id, name: 'Ungrouped devices'),
       clock: this.clock,
+      gt: super.gt,
     );
 
-    _groups.addAll(groupEntities.map((g) => GroupViewModel(g, clock: this.clock)).followedBy([newDummyGroup]));
+    _groups.addAll(
+      groupEntities.map((g) => GroupViewModel(g, clock: this.clock, gt: super.gt)).followedBy([newDummyGroup]),
+    );
 
     // Build device group mapping for efficient assignment
     final groupMap = {for (final group in _groups) group.id: group};
@@ -157,11 +168,11 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
     for (final deviceEntity in deviceEntities) {
       final metaModule = _deviceModuleRegistry.metaModules[deviceEntity.driverID];
       if (metaModule != null) {
-        final deviceVM = metaModule.createSummaryVM(deviceEntity, _deviceManager, globalEventBus);
+        final deviceVM = metaModule.createSummaryVM(deviceEntity, _deviceManager, globalEventBus, gt);
         final targetGroup = deviceEntity.groupID != null ? groupMap[deviceEntity.groupID] : newDummyGroup;
 
         if (targetGroup != null) {
-          targetGroup.addDevice(deviceVM);
+          targetGroup.addOrUpdateDevice(deviceVM);
         }
       }
     }
@@ -207,7 +218,7 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
     try {
       final metaModule = _deviceModuleRegistry.metaModules[event.device.driverID];
       if (metaModule != null) {
-        final deviceVM = metaModule.createSummaryVM(event.device, _deviceManager, globalEventBus);
+        final deviceVM = metaModule.createSummaryVM(event.device, _deviceManager, globalEventBus, gt);
 
         GroupViewModel targetGroup;
         if (event.device.groupID != null) {
@@ -216,7 +227,7 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
           targetGroup = dummyGroup;
         }
 
-        targetGroup.addDevice(deviceVM);
+        targetGroup.addOrUpdateDevice(deviceVM);
         logger?.i('Device ${event.device.name} added to group ${targetGroup.name}');
       }
     } catch (e, stackTrace) {
@@ -238,8 +249,13 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
     // Remove the deleted device from UI
     if (changedGroupIndex != -1) {
       final changedGroup = _groups[changedGroupIndex];
-      final deviceToRemove = changedGroup.devices.firstWhere((d) => d.deviceEntity.id == event.id);
-      deviceToRemove.dispose();
+      final deviceIndex = changedGroup.devices.indexWhere((d) => d.deviceEntity.id == event.id);
+      if (deviceIndex != -1) {
+        final deviceToRemove = changedGroup.devices[deviceIndex];
+        if (!deviceToRemove.isDisposed) {
+          deviceToRemove.dispose();
+        }
+      }
       changedGroup.removeDeviceById(event.id);
       // Notify only when necessary
       if (!isDisposed) {
@@ -269,15 +285,31 @@ class GroupedDevicesViewModel extends BaseViewModel with ViewModelEventBusMixin,
     }
   }
 
+  void _onSceneUpdated(SceneUpdatedEvent event) {
+    // if the updated scene matches current, trigger listeners so views can
+    // rebuild (e.g. AppBar image/name)
+    if (!super.isDisposed && _isInitialized) {
+      if (event.scene.id == _sceneManager.current.id) {
+        // _sceneManager.current already updated by manager; simply notify
+        notifyListeners();
+      }
+    }
+  }
+
   void _onDeviceGroupCreated(DeviceGroupCreatedEvent event) {
     // Use reload with lock to prevent race conditions
-    if (!isDisposed && !_isInitialized) return;
+    if (isDisposed) return;
 
     _deviceOperLock.synchronized(() async {
       if (isDisposed) return;
       await _reloadAll();
       if (!isDisposed) {
-        notifyListeners();
+        // Use post-frame callback to avoid triggering a rebuild mid-navigation
+        // (e.g. while PersistentBottomNavBar is popping a route, its Navigator
+        // _history may be temporarily empty which causes an assertion error).
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!isDisposed) notifyListeners();
+        });
       }
     });
   }

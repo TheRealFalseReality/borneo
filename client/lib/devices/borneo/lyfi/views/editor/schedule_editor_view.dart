@@ -2,7 +2,6 @@ import 'package:borneo_app/devices/borneo/lyfi/view_models/constants.dart';
 import 'package:borneo_app/devices/borneo/lyfi/views/easy_setup_screen.dart';
 import 'package:borneo_app/core/infrastructure/duration.dart';
 import 'package:borneo_app/core/infrastructure/time_of_day.dart';
-import 'package:borneo_app/shared/widgets/confirmation_sheet.dart';
 import 'package:borneo_app/shared/widgets/screen_top_rounded_container.dart';
 import 'package:borneo_common/duration_ext.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -70,7 +69,7 @@ class ScheduleEditorView extends StatelessWidget {
       series.add(
         LineChartBarData(
           isCurved: false,
-          barWidth: 2.5,
+          barWidth: 1.5,
           color: channelColor,
           dotData: const FlDotData(show: true),
           spots: spots,
@@ -116,7 +115,7 @@ class ScheduleEditorView extends StatelessWidget {
                       minX: minX,
                       maxX: maxX,
                       minY: 0,
-                      maxY: lyfiBrightnessMax.toDouble(),
+                      maxY: kLyfiBrightnessMax.toDouble(),
                       currentTime: vm.currentEntry?.instant,
                       allowZoom: true,
                       maxScale: maxScale,
@@ -145,8 +144,16 @@ class ScheduleEditorView extends StatelessWidget {
             Expanded(
               child: Selector<ScheduleEditorViewModel, bool>(
                 selector: (_, editor) => editor.canChangeColor,
-                builder: (_, canChangeColor, _) =>
-                    BrightnessSliderList(context.read<ScheduleEditorViewModel>(), disabled: !canChangeColor),
+                builder: (_, canChangeColor, _) => SingleChildScrollView(
+                  child: Container(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    child: BrightnessSliderList(
+                      context.read<ScheduleEditorViewModel>(),
+                      disabled: !canChangeColor,
+                      padding: EdgeInsets.all(0),
+                    ),
+                  ),
+                ),
               ),
             ),
 
@@ -164,23 +171,13 @@ class ScheduleEditorView extends StatelessWidget {
                       label: context.translate('Easy'),
                       color: Theme.of(context).colorScheme.primary,
                       onPressed: () async {
+                        await vm.easySetupEnter();
                         if (context.mounted) {
-                          bool proceed = true;
-                          if (vm.isNotEmpty) {
-                            proceed = await AsyncConfirmationSheet.show(
-                              context,
-                              message: context.translate(
-                                'Using Easy Setup will clear your current dimming settings. Are you sure you want to proceed?',
-                              ),
-                            );
-                          }
-                          if (proceed && context.mounted) {
-                            await vm.easySetupEnter();
-                            final route = MaterialPageRoute(builder: (context) => EasySetupScreen(vm));
-                            if (context.mounted) {
-                              await Navigator.push(context, route);
-                              await vm.easySetupFinish();
-                            }
+                          final route = MaterialPageRoute(builder: (context) => EasySetupScreen(vm));
+                          final applied = await Navigator.push(context, route);
+                          if (applied == true) {
+                            await vm.easySetupFinish();
+                            // stay on the Dimming screen (do not pop the parent route)
                           }
                         }
                       },

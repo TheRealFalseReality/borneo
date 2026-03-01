@@ -1,9 +1,12 @@
 // Dart port of src/thing.ts
 
+import 'package:cancellation_token/cancellation_token.dart';
+
 import 'property.dart';
 import 'event.dart';
 import 'action.dart';
 import 'types.dart';
+import 'exceptions.dart';
 
 /// A Web Thing.
 class WotThing {
@@ -89,8 +92,12 @@ class WotThing {
     return thing;
   }
 
+  Future<void> sync({CancellationToken? cancelToken}) async {
+    // Do nothing
+  }
+
   /// Get this thing's href.
-  String getHref() {
+  String get href {
     if (_hrefPrefix.isNotEmpty) {
       return _hrefPrefix;
     }
@@ -98,7 +105,7 @@ class WotThing {
   }
 
   /// Get this thing's UI href.
-  String? getUiHref() => _uiHref;
+  String? get uiHref => _uiHref;
 
   /// Set the prefix of any hrefs associated with this thing.
   void setHrefPrefix(String prefix) {
@@ -119,21 +126,6 @@ class WotThing {
   void setUiHref(String href) {
     _uiHref = href;
   }
-
-  /// Get the ID of the thing.
-  String getId() => id;
-
-  /// Get the title of the thing.
-  String getTitle() => title;
-
-  /// Get the type context of the thing.
-  String getContext() => context;
-
-  /// Get the type(s) of the thing.
-  List<String> getType() => type;
-
-  /// Get the description of the thing.
-  String getDescription() => description;
 
   /// Get the thing's properties as an object.
   Map<String, Map<String, dynamic>> getPropertyDescriptions() {
@@ -172,19 +164,19 @@ class WotThing {
     if (eventName == null) {
       return _events.map((e) => e.asEventDescription()).toList();
     } else {
-      return _events.where((e) => e.getName() == eventName).map((e) => e.asEventDescription()).toList();
+      return _events.where((e) => e.name == eventName).map((e) => e.asEventDescription()).toList();
     }
   }
 
   /// Add a property to this thing.
   void addProperty(WotProperty property) {
     property.setHrefPrefix(_hrefPrefix);
-    _properties[property.getName()] = property;
+    _properties[property.name] = property;
   }
 
   /// Remove a property from this thing.
   void removeProperty(WotProperty property) {
-    _properties.remove(property.getName());
+    _properties.remove(property.name);
   }
 
   /// Find a property by name.
@@ -197,9 +189,10 @@ class WotThing {
   /// Get a property's value.
   ///
   /// Returns current property value if found, else null
-  dynamic getProperty(String propertyName) {
+  T? getProperty<T>(String propertyName) {
     final prop = findProperty(propertyName);
-    return prop?.getValue();
+    final value = prop?.getValue();
+    return value is T ? value : null;
   }
 
   /// Get a mapping of all properties and their values.
@@ -233,7 +226,7 @@ class WotThing {
     }
 
     for (final action in _actions[actionName]!) {
-      if (action.getId() == actionId) {
+      if (action.id == actionId) {
         return action;
       }
     }
@@ -260,6 +253,12 @@ class WotThing {
   ///
   /// Returns the action that was created.
   WotAction? performAction(String actionName, [dynamic input]) {
+    if (this is WotActionGuard) {
+      final guard = this as WotActionGuard;
+      if (!guard.canPerformAction(actionName)) {
+        throw InvalidOperationException(message: guard.getActionGuardError(actionName) ?? 'Action is not allowed');
+      }
+    }
     if (!_availableActions.containsKey(actionName)) {
       return null;
     }
@@ -287,7 +286,7 @@ class WotThing {
 
     action.cancel();
     final actions = _actions[actionName]!;
-    actions.removeWhere((a) => a.getId() == actionId);
+    actions.removeWhere((a) => a.id == actionId);
     return true;
   }
 
@@ -335,11 +334,11 @@ class WotThing {
 
   /// Notify all subscribers of a property change.
   void propertyNotify(WotProperty property) {
-    final message = '{"messageType":"propertyStatus","data":{"${property.getName()}":${property.getValue()}}}';
+    final message = WotMessage(messageType: WotMessageType.propertyStatus, data: {property.name: property.getValue()});
 
     for (final subscriber in _subscribers) {
       try {
-        subscriber.send(message);
+        subscriber(message);
       } catch (e) {
         // do nothing
       }
@@ -348,11 +347,11 @@ class WotThing {
 
   /// Notify all subscribers of an action status change.
   void actionNotify(WotAction action) {
-    final message = '{"messageType":"actionStatus","data":${action.asActionDescription()}}';
+    final message = WotMessage(messageType: WotMessageType.actionStatus, data: action.asActionDescription());
 
     for (final subscriber in _subscribers) {
       try {
-        subscriber.send(message);
+        subscriber(message);
       } catch (e) {
         // do nothing
       }
@@ -361,15 +360,15 @@ class WotThing {
 
   /// Notify all subscribers of an event.
   void eventNotify(WotEvent event) {
-    if (!_availableEvents.containsKey(event.getName())) {
+    if (!_availableEvents.containsKey(event.name)) {
       return;
     }
 
-    final message = '{"messageType":"event","data":${event.asEventDescription()}}';
+    final message = WotMessage(messageType: WotMessageType.event, data: event.asEventDescription());
 
-    for (final subscriber in _availableEvents[event.getName()]!.subscribers) {
+    for (final subscriber in _availableEvents[event.name]!.subscribers) {
       try {
-        subscriber.send(message);
+        subscriber(message);
       } catch (e) {
         // do nothing
       }

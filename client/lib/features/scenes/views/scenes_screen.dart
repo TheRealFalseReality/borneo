@@ -56,12 +56,16 @@ class _ScenesScreenState extends State<ScenesScreen> {
           SliverAppBar(
             title: Text(context.translate('Scenes')),
             actions: [
-              IconButton(icon: const Icon(Icons.add_outlined), onPressed: () => _showNewSceneScreen(context)),
-              if (vm.isLoading)
-                const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                ),
+              SizedBox(
+                width: kToolbarHeight,
+                child: vm.isLoading
+                    ? const Padding(padding: EdgeInsets.all(12.0), child: CircularProgressIndicator(strokeWidth: 2))
+                    : IconButton(
+                        key: const Key('btn_add_scene'),
+                        icon: const Icon(Icons.add_outlined),
+                        onPressed: () => _showNewSceneScreen(context),
+                      ),
+              ),
             ],
           ),
           const _SceneList(),
@@ -159,6 +163,7 @@ class _SceneListState extends State<_SceneList> {
             },
           ),
           child: ListView.separated(
+            key: const Key('scene_list'),
             controller: _scrollController,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             separatorBuilder: (_, _) => const SizedBox(width: 16),

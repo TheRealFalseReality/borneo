@@ -1,7 +1,3 @@
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:borneo_common/io/net/network_interface_helper.dart';
 import 'package:borneo_kernel/drivers/borneo/lyfi/base_lyfi_driver.dart';
 import 'package:borneo_kernel/drivers/borneo/coap_client.dart';
 import 'package:borneo_kernel/drivers/borneo/coap_config.dart';
@@ -44,6 +40,11 @@ class LyfiPaths {
   static final Uri sunSchedule = Uri(path: '/borneo/lyfi/sun/schedule');
   static final Uri sunCurve = Uri(path: '/borneo/lyfi/sun/curve');
 
+  static final Uri moonConfig = Uri(path: '/borneo/lyfi/moon');
+  static final Uri moonSchedule = Uri(path: '/borneo/lyfi/moon/schedule');
+  static final Uri moonCurve = Uri(path: '/borneo/lyfi/moon/curve');
+  static final Uri moonStatus = Uri(path: '/borneo/lyfi/moon/status');
+
   static final Uri currentTemp = Uri(path: '/borneo/lyfi/thermal/temp/current');
   static final Uri keepTemp = Uri(path: '/borneo/lyfi/thermal/temp/keep');
   static final Uri fanMode = Uri(path: '/borneo/lyfi/thermal/fan/mode');
@@ -58,19 +59,11 @@ class BorneoLyfiCoapDriver extends BaseLyfiDriver with BorneoDeviceCoapApi imple
 
   @override
   Future<bool> probe(Device dev, {CancellationToken? cancelToken}) async {
-    InternetAddress? bindAddress;
-    try {
-      final inferred = await NetworkInterfaceHelper.inferNetworkInterface(dev.address.host);
-      bindAddress = inferred != null ? InternetAddress.tryParse(inferred) : null;
-    } catch (_) {
-      bindAddress = null;
-    }
     final probeCoapClient = BorneoCoapClient(
       dev.address,
       config: BorneoProbeCoapConfig.coapConfig,
       device: dev,
       offlineDetectionEnabled: false,
-      bindAddress: bindAddress,
     );
     bool succeed = false;
     try {
@@ -85,7 +78,6 @@ class BorneoLyfiCoapDriver extends BaseLyfiDriver with BorneoDeviceCoapApi imple
         config: BorneoCoapConfig.coapConfig,
         device: dev,
         offlineDetectionEnabled: true,
-        bindAddress: bindAddress,
       );
       // Verify firmware version
       final fwver = await _getFirmwareVersion(coapClient, cancelToken: cancelToken);
@@ -98,9 +90,8 @@ class BorneoLyfiCoapDriver extends BaseLyfiDriver with BorneoDeviceCoapApi imple
         );
       }
 
-      final generalDeviceInfo = await _getGeneralDeviceInfo(coapClient, cancelToken: cancelToken);
-      final lyfiInfo = await _getLyfiInfo(coapClient, cancelToken: cancelToken);
-      final driverData = LyfiCoapDriverData(dev, coapClient, probeCoapClient, generalDeviceInfo, lyfiInfo);
+      final driverData = LyfiCoapDriverData(dev, coapClient, probeCoapClient);
+      coapClient.deviceEvents = driverData.deviceEvents;
       driverData.load();
       dev.setDriverData(driverData);
       succeed = true;
@@ -174,36 +165,33 @@ class BorneoLyfiCoapDriver extends BaseLyfiDriver with BorneoDeviceCoapApi imple
     return Version.parse(fwver);
   }
 
-  Future<GeneralBorneoDeviceInfo> _getGeneralDeviceInfo(CoapClient coap, {CancellationToken? cancelToken}) async {
-    final payload = await coap.getCbor<Map>(BorneoPaths.deviceInfo, cancelToken: cancelToken);
-    return GeneralBorneoDeviceInfo.fromMap(payload);
-  }
-
-  Future<LyfiDeviceInfo> _getLyfiInfo(CoapClient coap, {CancellationToken? cancelToken}) async {
-    final payload = await coap.getCbor<Map>(LyfiPaths.info, cancelToken: cancelToken);
-    return LyfiDeviceInfo.fromMap(payload);
-  }
-
   static SupportedDeviceDescriptor? matches(DiscoveredDevice discovered) {
     if (discovered is MdnsDiscoveredDevice) {
-      final compatible = utf8.decode(discovered.txt?['compatible'] ?? [], allowMalformed: true);
-      final fwVer = Version.parse(utf8.decode(discovered.txt?['fwver'] ?? [], allowMalformed: true));
+      final compatible = discovered.txt?['compatible'] ?? '';
+      final fwVer = Version.parse(discovered.txt?['fwver'] ?? '');
       if (compatible == lyfiCompatibleString) {
         final matched = SupportedDeviceDescriptor(
           driverDescriptor: borneoLyfiDriverDescriptor,
           address: Uri(scheme: 'coap', host: discovered.host, port: discovered.port),
-          name: utf8.decode(discovered.txt?['name'] ?? [], allowMalformed: true),
+          name: discovered.txt?['name'] ?? '',
           compatible: compatible,
-          model: utf8.decode(discovered.txt?['model'] ?? [], allowMalformed: true),
-          fingerprint: utf8.decode(discovered.txt?['serno'] ?? [], allowMalformed: true),
-          manuf: utf8.decode(discovered.txt?['manuf'] ?? [], allowMalformed: true),
+          model: discovered.txt?['model'] ?? '',
+          fingerprint: discovered.txt?['serno'] ?? '',
+          manuf: discovered.txt?['manuf'] ?? '',
           fwVer: fwVer,
-          isCE: utf8.decode(discovered.txt?['ce'] ?? [], allowMalformed: true) == 'true' ? true : false,
+          isCE: discovered.txt?['ce'] == 'true' ? true : false,
         );
         return matched;
       }
     }
     return null;
+  }
+
+  @override
+  Future<GeneralBorneoDeviceInfo> getGeneralDeviceInfo(Device dev, {CancellationToken? cancelToken}) async {
+    final dd = dev.driverData as LyfiCoapDriverData;
+    final payload = await dd.coap.getCbor<Map>(BorneoPaths.deviceInfo, cancelToken: cancelToken);
+    return GeneralBorneoDeviceInfo.fromMap(payload);
   }
 
   @override
@@ -213,9 +201,10 @@ class BorneoLyfiCoapDriver extends BaseLyfiDriver with BorneoDeviceCoapApi imple
   }, cancelToken: cancelToken);
 
   @override
-  LyfiDeviceInfo getLyfiInfo(Device dev, {CancellationToken? cancelToken}) {
+  Future<LyfiDeviceInfo> getLyfiInfo(Device dev, {CancellationToken? cancelToken}) async {
     final dd = dev.driverData as LyfiCoapDriverData;
-    return dd.lyfiDeviceInfo;
+    final payload = await dd.coap.getCbor<Map>(LyfiPaths.info, cancelToken: cancelToken);
+    return LyfiDeviceInfo.fromMap(payload);
   }
 
   @override
@@ -399,6 +388,41 @@ class BorneoLyfiCoapDriver extends BaseLyfiDriver with BorneoDeviceCoapApi imple
     final dd = dev.data<LyfiCoapDriverData>();
     final items = await dd.coap.getCbor<List<dynamic>>(LyfiPaths.sunCurve, cancelToken: cancelToken);
     return items.map((x) => SunCurveItem.fromMap(x!)).toList();
+  }, cancelToken: cancelToken);
+
+  @override
+  Future<MoonConfig> getMoonConfig(Device dev, {CancellationToken? cancelToken}) => withQueue(dev, () async {
+    final dd = dev.data<LyfiCoapDriverData>();
+    final map = await dd.coap.getCbor<Map>(LyfiPaths.moonConfig, cancelToken: cancelToken);
+    return MoonConfig.fromMap(map);
+  }, cancelToken: cancelToken);
+
+  @override
+  Future<MoonStatus> getMoonStatus(Device dev, {CancellationToken? cancelToken}) => withQueue(dev, () async {
+    final dd = dev.data<LyfiCoapDriverData>();
+    final map = await dd.coap.getCbor<Map>(LyfiPaths.moonStatus, cancelToken: cancelToken);
+    return MoonStatus.fromMap(map);
+  }, cancelToken: cancelToken);
+
+  @override
+  Future<void> setMoonConfig(Device dev, MoonConfig config, {CancellationToken? cancelToken}) =>
+      withQueue(dev, () async {
+        final dd = dev.data<LyfiCoapDriverData>();
+        await dd.coap.putCbor(LyfiPaths.moonConfig, config.toPayload(), cancelToken: cancelToken);
+      }, cancelToken: cancelToken);
+
+  @override
+  Future<ScheduleTable> getMoonSchedule(Device dev, {CancellationToken? cancelToken}) => withQueue(dev, () async {
+    final dd = dev.data<LyfiCoapDriverData>();
+    final items = await dd.coap.getCbor<List<dynamic>>(LyfiPaths.moonSchedule, cancelToken: cancelToken);
+    return items.map((x) => ScheduledInstant.fromMap(x!)).toList();
+  }, cancelToken: cancelToken);
+
+  @override
+  Future<List<MoonCurveItem>> getMoonCurve(Device dev, {CancellationToken? cancelToken}) => withQueue(dev, () async {
+    final dd = dev.data<LyfiCoapDriverData>();
+    final items = await dd.coap.getCbor<List<dynamic>>(LyfiPaths.moonCurve, cancelToken: cancelToken);
+    return items.map((x) => MoonCurveItem.fromMap(x!)).toList();
   }, cancelToken: cancelToken);
 
   @override

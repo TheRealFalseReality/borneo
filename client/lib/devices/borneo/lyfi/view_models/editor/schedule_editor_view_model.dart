@@ -56,7 +56,6 @@ class ScheduleEditorViewModel extends BaseEditorViewModel {
   bool get isNotEmpty => _entries.isNotEmpty;
 
   List<ScheduleEntryViewModel> get entries => _entries;
-  Iterable<int> get instants => _entries.map((x) => x.instant.inSeconds);
   bool get isPreviewMode => parent.state == LyfiState.preview;
 
   @override
@@ -68,7 +67,7 @@ class ScheduleEditorViewModel extends BaseEditorViewModel {
 
   ILyfiDeviceApi get _deviceApi => parent.boundDevice!.driver as ILyfiDeviceApi;
 
-  ScheduleEditorViewModel(super.parent) : easySetupViewModel = EasySetupViewModel();
+  ScheduleEditorViewModel(super.parent, super.lyfiThing) : easySetupViewModel = EasySetupViewModel();
 
   @override
   Future<void> onInitialize({CancellationToken? cancelToken}) async {
@@ -76,19 +75,18 @@ class ScheduleEditorViewModel extends BaseEditorViewModel {
       throw StateError('Device is not bound.');
     }
 
-    final deviceSideInstants = await parent.executeLyfiCommand(
-      () => super.deviceApi.getSchedule(parent.boundDevice!.device),
-    );
+    final cachedInstants = parent.scheduledInstants;
+    _entries.addAll(cachedInstants.map((x) => ScheduleEntryViewModel(x)));
 
-    _entries.addAll(deviceSideInstants.map((x) => ScheduleEntryViewModel(x)));
-
-    if (deviceSideInstants.isNotEmpty) {
-      var currentEntryIndex = deviceSideInstants.indexWhere((x) => !x.isZero);
+    if (cachedInstants.isNotEmpty) {
+      var currentEntryIndex = cachedInstants.indexWhere((x) => !x.isZero);
       if (currentEntryIndex < 0) {
         currentEntryIndex = 0;
       }
       _setCurrentEntry(currentEntryIndex);
     }
+
+    await syncDimmingColor(false, cancelToken: cancelToken);
   }
 
   void _setCurrentEntry(int? index) {
@@ -271,12 +269,12 @@ class ScheduleEditorViewModel extends BaseEditorViewModel {
   }
 
   @override
-  Future<void> save() async {
-    final schedule = _entries.map((x) => x.toModel());
+  Future<void> save({CancellationToken? cancelToken}) async {
     if (parent.isSuspectedOffline || parent.boundDevice == null) {
       return;
     }
-    await parent.executeLyfiCommand(() => _deviceApi.setSchedule(parent.boundDevice!.device, schedule));
+    final toSave = _entries.map((x) => x.toModel()).toList(growable: false);
+    await lyfiThing.performAction('setSchedule', toSave)!.invoke().asCancellable(cancelToken);
   }
 
   void resetChannelValues() {}
@@ -294,12 +292,34 @@ class ScheduleEditorViewModel extends BaseEditorViewModel {
   }
 
   Future<void> easySetupEnter() async {
-    clearEntries(notify: false);
+    // Initialize Easy Setup fields from current editor values instead of
+    // clearing the schedule immediately. This ensures the Easy Setup UI
+    // reads the current brightness sliders and sensible times.
+    if (currentEntry != null) {
+      final inst = currentEntry!.instant;
+      final start = Duration(hours: inst.inHours % 24, minutes: inst.inMinutes % 60);
+      easySetupViewModel.startTime.value = start;
+      final defaultSpan = defaultEndTime - defaultStartTime;
+      final proposedEnd = start + defaultSpan;
+      easySetupViewModel.endTime.value = Duration(hours: proposedEnd.inHours % 24, minutes: proposedEnd.inMinutes % 60);
+    } else {
+      easySetupViewModel.startTime.value = defaultStartTime;
+      easySetupViewModel.endTime.value = defaultEndTime;
+    }
+
+    // Also copy current channel slider values into the EasySetupViewModel so
+    // the Easy Setup UI operates on a temporary set of channel values.
+    easySetupViewModel.initChannelsFromList(channels.map((c) => c.value).toList());
+
+    // Do not clear entries here; Apply in the Easy Setup screen will commit.
   }
 
   Future<void> easySetupFinish() async {
     final easyInstants = easySetupViewModel.build(this);
-    if (channels.any((x) => x.value > 0)) {
+    final effectiveChannelValues = easySetupViewModel.channelValues.isNotEmpty
+        ? easySetupViewModel.channelValues
+        : channels.map((x) => x.value).toList();
+    if (effectiveChannelValues.any((v) => v > 0)) {
       await loadCurve(easyInstants);
     }
   }

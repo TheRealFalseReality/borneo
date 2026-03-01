@@ -35,8 +35,11 @@ import 'package:borneo_app/core/config/language_config.dart';
 final kSupportedLocales = LanguageConfig.supportedLocales;
 
 class BorneoApp extends StatefulWidget {
-  final EventBus _globalEventBus = EventBus();
-  BorneoApp({super.key});
+  /// The shared event bus used by both Riverpod and provider consumers.
+  final EventBus globalEventBus;
+
+  final Locale? initialLocale;
+  const BorneoApp({super.key, required this.globalEventBus, this.initialLocale});
 
   @override
   State<BorneoApp> createState() => _BorneoAppState();
@@ -47,18 +50,31 @@ class _BorneoAppState extends State<BorneoApp> {
   Locale? _locale;
   late StreamSubscription _localeSub;
   late StreamSubscription _themeSub;
+  ThemeData _currentTheme = ThemeData();
 
   @override
   void initState() {
     super.initState();
-    _loadThemeMode().then((mode) => setState(() => _themeMode = mode));
-    _loadLocale().then((loc) => setState(() => _locale = loc));
-    _localeSub = widget._globalEventBus.on<AppLocaleChangedEvent>().listen((event) {
+    // Only trigger a rebuild if the loaded theme mode differs from the current
+    // default to avoid a spurious rebuild that can upset nested navigators and
+    // cause stateless-widget form keys to be recreated.
+    _loadThemeMode().then((mode) {
+      if (mode != _themeMode) setState(() => _themeMode = mode);
+    });
+    // Apply the pre-loaded initial locale synchronously so the first frame
+    // already uses the correct locale (avoids race with async _loadLocale).
+    _locale = widget.initialLocale;
+    _loadLocale().then((loc) {
+      // Only trigger a rebuild if the locale actually differs to avoid a
+      // spurious second rebuild that can upset nested navigators.
+      if (loc != _locale) setState(() => _locale = loc);
+    });
+    _localeSub = widget.globalEventBus.on<AppLocaleChangedEvent>().listen((event) {
       setState(() {
         _locale = event.locale;
       });
     });
-    _themeSub = widget._globalEventBus.on<ThemeChangedEvent>().listen((event) {
+    _themeSub = widget.globalEventBus.on<ThemeChangedEvent>().listen((event) {
       setState(() {
         _themeMode = event.themeMode;
       });
@@ -89,15 +105,25 @@ class _BorneoAppState extends State<BorneoApp> {
 
   @override
   Widget build(BuildContext context) {
+    /*
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff493b72), brightness: Brightness.light),
+        useMaterial3: true, // 推荐使用 Material 3
+      ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff493b72), brightness: Brightness.dark),
+        useMaterial3: true, // 推荐使用 Material 3
+      ),
+    */
     return MultiProvider(
       providers: [
-        Provider<EventBus>(create: (_) => widget._globalEventBus),
+        Provider<EventBus>(create: (_) => widget.globalEventBus),
         Provider<IBlobManager>(create: (_) => FlutterAppBlobManager()),
       ],
       child: Builder(
         builder: (context) {
           return MaterialApp(
-            title: 'Borneo-IoT',
+            title: 'Borneo Aqua',
             theme: BorneoTheme(Theme.of(context).textTheme).light(),
             darkTheme: BorneoTheme(Theme.of(context).textTheme).dark(),
             themeMode: _themeMode,
@@ -114,6 +140,7 @@ class _BorneoAppState extends State<BorneoApp> {
             builder: (context, child) {
               final gt = GettextLocalizations.of(context);
               final theme = Theme.of(context);
+              _currentTheme = theme;
               final effectiveBrightness = _themeMode == ThemeMode.dark
                   ? Brightness.dark
                   : (_themeMode == ThemeMode.light ? Brightness.light : theme.brightness);
@@ -135,7 +162,7 @@ class _BorneoAppState extends State<BorneoApp> {
                 providers: [
                   Provider<GettextLocalizations>(create: (context) => gt),
 
-                  Provider<IAppNotificationService>(create: (context) => AppNotificationServiceImpl(theme)),
+                  Provider<IAppNotificationService>(create: (_) => AppNotificationServiceImpl(() => _currentTheme)),
 
                   Provider<UrlLauncherService>(
                     create: (context) => UrlLauncherService(

@@ -205,7 +205,7 @@ int led_init()
     BO_TRY_ESP(ledc_timer_config(&ledc_timer));
 
     // More than 8 channels need to initialize the second timer
-    if (led_channel_count() > 8) {
+    if (CONFIG_LYFI_LED_CHANNEL_COUNT > 8) {
         ledc_timer.speed_mode = LEDC_LOW_SPEED_MODE;
         ledc_timer.timer_num = LEDC_TIMER_1;
         BO_TRY_ESP(ledc_timer_config(&ledc_timer));
@@ -214,7 +214,7 @@ int led_init()
     ESP_LOGI(TAG, "PWM timer initialized.");
 
     // Initialize all channels
-    for (size_t ch = 0; ch < factory_settings->channel_count; ch++) {
+    for (size_t ch = 0; ch < CONFIG_LYFI_LED_CHANNEL_COUNT; ch++) {
         _ledc_channels[ch].gpio_num = LED_GPIOS[ch];
         _ledc_channels[ch].intr_type = LEDC_INTR_DISABLE;
         _ledc_channels[ch].hpoint = (ch * LED_MAX_DUTY) / led_channel_count();
@@ -254,12 +254,14 @@ int led_init()
         BO_TRY(led_sun_init());
     }
 
+    BO_TRY(led_moon_init());
+
 #if CONFIG_LYFI_PROTECTION_OVERPOWER_SUPPORT
     // Perform LED channel self-test
     BO_TRY(led_channel_self_test());
 #endif
 
-    xTaskCreate(&led_render_task, "led_render_task", 4 * 1024, NULL, TASK_PRIORITY, NULL);
+    xTaskCreate(&led_render_task, "led_render_task", 8 * 1024, NULL, TASK_PRIORITY, NULL);
     ESP_LOGI(TAG, "LED Controller module has been initialized successfully.");
     return 0;
 }
@@ -594,6 +596,13 @@ static void system_events_handler(void* handler_args, esp_event_base_t base, int
         if (rc) {
             ESP_LOGE(TAG, "Failed to update solar scheduler");
         }
+
+        if (led_moon_is_enabled()) {
+            rc = led_moon_update_scheduler();
+            if (rc) {
+                ESP_LOGE(TAG, "Failed to update moon scheduler");
+            }
+        }
     } break;
 
     default:
@@ -824,14 +833,17 @@ int led_switch_mode(uint8_t mode)
 
     case LED_MODE_MANUAL: {
         BO_TRY(led_mode_manual_entry());
+        ESP_LOGI(TAG, "Switched to LED mode: `manual`");
     } break;
 
     case LED_MODE_SCHEDULED: {
         BO_TRY(led_mode_scheduled_entry());
+        ESP_LOGI(TAG, "Switched to LED mode: `scheduled`");
     } break;
 
     case LED_MODE_SUN: {
         BO_TRY(led_mode_sun_entry());
+        ESP_LOGI(TAG, "Switched to LED mode: `sun`");
     } break;
 
     default:
@@ -928,6 +940,8 @@ static void normal_state_run()
         BO_MUST(led_acclimation_drive(utc_now, color));
     }
 
+    BO_MUST(led_moon_apply_filter(utc_now, color));
+
     // Optional cloud overlay (micro shadow) as a multiplicative filter
 
     if (_led.settings.flags & LED_OPTION_CLOUD_ENABLED) {
@@ -954,9 +968,6 @@ void dimming_state_entry()
     ESP_LOGI(TAG, "Entering dimming mode.");
 
     led_dimming_reset_timeout();
-    if (_led.settings.dimming_timeout_sec > 0) {
-        ESP_LOGI(TAG, "Dimming timeout set to %u seconds", _led.settings.dimming_timeout_sec);
-    }
 
     switch (_led.settings.mode) {
 
@@ -979,7 +990,7 @@ void dimming_state_entry()
 
 void dimming_state_run()
 {
-    if (_led.settings.dimming_timeout_sec > 0) {
+    if (CONFIG_LYFI_DIMMING_TIMEOUT > 0) {
         int64_t now_ms = bo_timer_uptime_ms();
         int64_t deadline_ms;
         portENTER_CRITICAL(&g_led_spinlock);
@@ -1098,10 +1109,7 @@ int32_t led_get_temporary_remaining()
 static inline void led_dimming_reset_timeout()
 {
     int64_t now_ms = bo_timer_uptime_ms();
-    uint16_t timeout_sec;
-    portENTER_CRITICAL(&g_led_spinlock);
-    timeout_sec = _led.settings.dimming_timeout_sec;
-    portEXIT_CRITICAL(&g_led_spinlock);
+    uint16_t timeout_sec = CONFIG_LYFI_DIMMING_TIMEOUT;
 
     if (timeout_sec > 0) {
         portENTER_CRITICAL(&g_led_spinlock);
@@ -1112,21 +1120,11 @@ static inline void led_dimming_reset_timeout()
 
 int led_set_dimming_timeout(uint32_t timeout_sec)
 {
-    portENTER_CRITICAL(&g_led_spinlock);
-    _led.settings.dimming_timeout_sec = timeout_sec;
-    portEXIT_CRITICAL(&g_led_spinlock);
-    BO_TRY(led_save_user_settings());
-    return 0;
+    // Dimming timeout is now fixed to CONFIG_LYFI_DIMMING_TIMEOUT
+    return -ENOTSUP;
 }
 
-uint32_t led_get_dimming_timeout()
-{
-    uint32_t timeout;
-    portENTER_CRITICAL(&g_led_spinlock);
-    timeout = _led.settings.dimming_timeout_sec;
-    portEXIT_CRITICAL(&g_led_spinlock);
-    return timeout;
-}
+uint32_t led_get_dimming_timeout() { return CONFIG_LYFI_DIMMING_TIMEOUT; }
 
 void led_temporary_state_entry()
 {

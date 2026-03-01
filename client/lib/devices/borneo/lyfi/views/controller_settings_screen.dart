@@ -1,13 +1,14 @@
 import 'package:borneo_app/devices/borneo/lyfi/view_models/controller_settings_view_model.dart';
 import 'package:borneo_app/shared/widgets/bottom_sheet_picker.dart';
-import 'package:borneo_app/shared/widgets/generic_settings_screen.dart';
+import 'package:flutter_settings_ui/flutter_settings_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_gettext/flutter_gettext/context_ext.dart';
 
 import 'package:provider/provider.dart';
-import 'package:toastification/toastification.dart';
+
+import 'package:borneo_app/devices/borneo/lyfi/views/dimmer_channel_view.dart';
+import 'package:borneo_app/devices/borneo/lyfi/view_models/channel_settings_view_model.dart';
 
 class ControllerSettingsScreen extends StatefulWidget {
   final ControllerSettingsViewModel vm;
@@ -20,7 +21,7 @@ class ControllerSettingsScreen extends StatefulWidget {
 class _ControllerSettingsScreenState extends State<ControllerSettingsScreen> {
   late Future<void> _initFuture;
   late final TextEditingController _overpowerCutoffController;
-  final List<TextEditingController> _channelNameControllers = [];
+  // channel editing is now delegated to a separate screen; controllers are unused
 
   @override
   void initState() {
@@ -32,9 +33,6 @@ class _ControllerSettingsScreenState extends State<ControllerSettingsScreen> {
   @override
   void dispose() {
     _overpowerCutoffController.dispose();
-    for (final c in _channelNameControllers) {
-      c.dispose();
-    }
     super.dispose();
   }
 
@@ -43,202 +41,171 @@ class _ControllerSettingsScreenState extends State<ControllerSettingsScreen> {
     return FutureBuilder<void>(
       future: _initFuture,
       builder: (context, snapshot) {
-        final isInitialized = snapshot.connectionState == ConnectionState.done && !snapshot.hasError;
+        if (snapshot.connectionState != ConnectionState.done) {
+          return Scaffold(
+            appBar: AppBar(title: Text(context.translate("Controller Settings"))),
+            body: const Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(title: Text(context.translate("Controller Settings"))),
+            body: Center(child: Text(context.translate('Initialization failed'))),
+          );
+        }
 
         return ChangeNotifierProvider.value(
           value: widget.vm,
-          builder: (context, child) => GenericSettingsScreen(
-            title: context.translate("Controller Settings"),
-            appBarActions: _buildAppBarActions(context, snapshot, isInitialized),
-            children: _buildSettingGroups(context, isInitialized),
+          builder: (context, child) => Consumer<ControllerSettingsViewModel>(
+            builder: (context, vm, child) => Scaffold(
+              appBar: AppBar(
+                title: Text(context.translate("Controller Settings")),
+                actions: _buildAppBarActions(context),
+                elevation: 1,
+              ),
+              body: _buildSettingsList(context),
+            ),
           ),
         );
       },
     );
   }
 
-  List<Widget> _buildAppBarActions(BuildContext context, AsyncSnapshot<void> snapshot, bool isInitialized) {
+  List<Widget> _buildAppBarActions(BuildContext context) {
     return [
-      AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
-        child: snapshot.connectionState == ConnectionState.waiting
-            ? const SizedBox(
-                key: ValueKey('loading'),
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Selector<ControllerSettingsViewModel, bool>(
-                selector: (context, vm) => vm.hasChanges,
-                builder: (context, hasChanges, child) => TextButton.icon(
-                  key: const ValueKey('submit'),
-                  onPressed: isInitialized && context.read<ControllerSettingsViewModel>().canSubmit
-                      ? () => _showSubmitConfirmationDialog(context)
-                      : null,
-                  icon: const Icon(Icons.upload),
-                  label: Text(context.translate('Submit')),
-                ),
-              ),
+      Selector<ControllerSettingsViewModel, bool>(
+        selector: (context, vm) => vm.hasChanges,
+        builder: (context, hasChanges, child) => TextButton.icon(
+          key: const ValueKey('submit'),
+          onPressed: context.read<ControllerSettingsViewModel>().canSubmit
+              ? () => _showSubmitConfirmationDialog(context)
+              : null,
+          icon: const Icon(Icons.check, size: 24),
+          label: Text(context.translate('Apply')),
+        ),
       ),
     ];
   }
 
-  List<Widget> _buildSettingGroups(BuildContext context, bool isInitialized) {
-    // const rightChevron = CupertinoListTileChevron();
-    final tileColor = Theme.of(context).colorScheme.surfaceContainerHighest;
-    return <Widget>[
-      GenericSettingsGroup(
-        title: context.translate('LED CONFIGURATION'),
-        children: [
-          if (isInitialized && widget.vm.pwmFreq.available)
-            Selector<ControllerSettingsViewModel, int?>(
-              selector: (context, vm) => vm.pwmFreq.value,
-              builder: (context, pwmFreq, child) => ListTile(
-                dense: true,
-                tileColor: tileColor,
+  /// Convert the old widget-based groups into a [SettingsList] with sections.
+  SettingsList _buildSettingsList(BuildContext context) {
+    return SettingsList(
+      sections: [
+        SettingsSection(
+          title: Text(context.translate('LED CONFIGURATION')),
+          tiles: [
+            if (widget.vm.pwmFreq.available)
+              SettingsTile.navigation(
                 title: Text(context.translate('PWM frequency')),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [Text(_formatPwmFreq(pwmFreq)), const SizedBox(width: 8), const Icon(Icons.chevron_right)],
+                value: Selector<ControllerSettingsViewModel, int?>(
+                  selector: (context, vm) => vm.pwmFreq.value,
+                  builder: (context, pwmFreq, child) => Text(_formatPwmFreq(pwmFreq)),
                 ),
-                onTap: () => _showPwmFreqPicker(context),
+                onPressed: (bc) => _showPwmFreqPicker(bc),
               ),
-            ),
-        ],
-      ),
+          ],
+        ),
 
-      GenericSettingsGroup(
-        title: context.translate('LED CHANNELS'),
-        children: [
-          if (isInitialized && widget.vm.channelCountSetting.available)
-            Selector<ControllerSettingsViewModel, int?>(
-              selector: (context, vm) => vm.channelCountSetting.value,
-              builder: (context, channelCount, child) => ListTile(
-                dense: true,
-                tileColor: tileColor,
-                title: Text(context.translate('Channel count')),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [Text('$channelCount'), const SizedBox(width: 8), const Icon(Icons.chevron_right)],
+        SettingsSection(
+          title: Text(context.translate('LED CHANNELS')),
+          tiles: [
+            if (widget.vm.channelCountSetting.available)
+              SettingsTile.navigation(
+                title: Text(context.translate('Enabled channel count')),
+                value: Selector<ControllerSettingsViewModel, int?>(
+                  selector: (context, vm) => vm.channelCountSetting.value,
+                  builder: (context, channelCount, child) => Text('$channelCount'),
                 ),
-                onTap: () => _showChannelCountPicker(context),
+                onPressed: (bc) => _showChannelCountPicker(bc),
               ),
-            ),
-          if (isInitialized)
-            ...List<Widget>.generate(widget.vm.channelCountSetting.value, (index) {
-              final name = widget.vm.getChannelName(index);
-              final colorStr = widget.vm.getChannelColor(index);
-              if (_channelNameControllers.length <= index) {
-                _channelNameControllers.add(TextEditingController(text: name));
-              } else {
-                final c = _channelNameControllers[index];
-                if (c.text != name) c.text = name;
-              }
 
-              return ListTile(
-                dense: true,
-                tileColor: tileColor,
-                leading: Icon(Icons.circle, color: _parseHexColor(colorStr)),
-                title: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _channelNameControllers[index],
-                        decoration: InputDecoration(
-                          isDense: true,
-                          labelText: context.translate('Name'),
-                          hintText: context.translate('1-15 characters'),
-                        ),
-                        inputFormatters: [LengthLimitingTextInputFormatter(15)],
-                        onChanged: (val) => setState(() => widget.vm.setChannelName(index, val)),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    IconButton.outlined(
-                      icon: const Icon(Icons.palette_outlined),
-                      tooltip: context.translate('Pick color'),
-                      onPressed: () => _openColorPicker(index),
-                    ),
-                  ],
+            ...List<SettingsTile>.generate(widget.vm.channels.length, (index) {
+              final ch = widget.vm.channels[index];
+              return SettingsTile.navigation(
+                leading: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _parseHexColor(ch.color),
+                    border: Border.all(color: Theme.of(context).colorScheme.surfaceDim, width: 1.5),
+                  ),
                 ),
+                title: Text(
+                  ch.name,
+                  style: ch.nameValid ? null : TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+                onPressed: (bc) => _editChannel(bc, index),
               );
             }),
-        ],
-      ),
+          ],
+        ),
 
-      // Power & Protection
-      GenericSettingsGroup(
-        title: context.translate('POWER & PROTECTION'),
-        children: [
-          if (isInitialized && widget.vm.overpowerEnabled.available)
-            Selector<ControllerSettingsViewModel, bool>(
-              selector: (context, vm) => vm.overpowerEnabled.value,
-              builder: (context, enabled, child) => SwitchListTile.adaptive(
-                dense: true,
-                tileColor: tileColor,
-                title: Text(context.translate("Overpower enabled")),
-                value: enabled,
-                onChanged: (bool value) => context.read<ControllerSettingsViewModel>().overpowerEnabled.setValue(value),
-              ),
-            ),
-          if (isInitialized && widget.vm.overpowerCutoff.available)
-            ListTile(
-              dense: true,
-              tileColor: tileColor,
-              title: Text(context.translate('Overpower cut-off')),
-              trailing: Selector<ControllerSettingsViewModel, int>(
-                selector: (context, vm) => vm.overpowerCutoff.value,
-                builder: (context, cutoff, child) {
-                  final cutoffText = cutoff.toString();
-                  if (_overpowerCutoffController.text != cutoffText) {
-                    _overpowerCutoffController.value = TextEditingValue(
-                      text: cutoffText,
-                      selection: TextSelection.collapsed(offset: cutoffText.length),
-                    );
-                  }
-                  return SizedBox(
-                    width: 120,
-                    child: TextField(
-                      controller: _overpowerCutoffController,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      textAlign: TextAlign.end,
-                      decoration: InputDecoration(isDense: true, hintText: '1 - 99999'),
-                      onChanged: _onOverpowerCutoffChanged,
-                      onSubmitted: _onOverpowerCutoffChanged,
-                    ),
-                  );
-                },
-              ),
-            ),
-          if (isInitialized && widget.vm.overtempEnabled.available)
-            Selector<ControllerSettingsViewModel, bool>(
-              selector: (context, vm) => vm.overtempEnabled.value,
-              builder: (context, enabled, child) => SwitchListTile.adaptive(
-                dense: true,
-                tileColor: tileColor,
-                title: Text(context.translate("Overtemperature enabled")),
-                value: enabled,
-                onChanged: (bool value) => context.read<ControllerSettingsViewModel>().overtempEnabled.setValue(value),
-              ),
-            ),
-          if (isInitialized && widget.vm.overtempCutoff.available)
-            Selector<ControllerSettingsViewModel, int?>(
-              selector: (context, vm) => vm.overtempCutoff.value,
-              builder: (context, cutoff, child) => ListTile(
-                dense: true,
-                tileColor: tileColor,
-                title: Text(context.translate('Overtemperature cut-off')),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [Text('$cutoff ℃'), const SizedBox(width: 8), const Icon(Icons.chevron_right)],
+        // Power & Protection
+        if (widget.vm.overpowerEnabled.available ||
+            widget.vm.overpowerCutoff.available ||
+            widget.vm.overtempEnabled.available ||
+            widget.vm.overtempCutoff.available)
+          SettingsSection(
+            title: Text(context.translate('POWER & PROTECTION')),
+            tiles: [
+              if (widget.vm.overpowerEnabled.available)
+                SettingsTile.switchTile(
+                  initialValue: widget.vm.overpowerEnabled.value,
+                  onToggle: (bool value) =>
+                      context.read<ControllerSettingsViewModel>().overpowerEnabled.setValue(value),
+                  title: Text(context.translate("Overpower enabled")),
                 ),
-                onTap: () => _showOvertempCutoffPicker(context),
-              ),
-            ),
-        ],
-      ),
-    ];
+              if (widget.vm.overpowerCutoff.available)
+                SettingsTile.navigation(
+                  title: Text(context.translate('Overpower cut-off')),
+                  value: Selector<ControllerSettingsViewModel, int>(
+                    selector: (context, vm) => vm.overpowerCutoff.value,
+                    builder: (context, cutoff, child) {
+                      final cutoffText = cutoff.toString();
+                      if (_overpowerCutoffController.text != cutoffText) {
+                        _overpowerCutoffController.value = TextEditingValue(
+                          text: cutoffText,
+                          selection: TextSelection.collapsed(offset: cutoffText.length),
+                        );
+                      }
+                      return SizedBox(
+                        width: 120,
+                        child: TextField(
+                          controller: _overpowerCutoffController,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                          textAlign: TextAlign.end,
+                          decoration: InputDecoration(isDense: true, hintText: '1 - 99999'),
+                          onChanged: _onOverpowerCutoffChanged,
+                          onSubmitted: _onOverpowerCutoffChanged,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+              if (widget.vm.overtempEnabled.available)
+                SettingsTile.switchTile(
+                  initialValue: widget.vm.overtempEnabled.value,
+                  onToggle: (bool value) => context.read<ControllerSettingsViewModel>().overtempEnabled.setValue(value),
+                  title: Text(context.translate("Overtemperature enabled")),
+                ),
+
+              if (widget.vm.overtempCutoff.available)
+                SettingsTile.navigation(
+                  title: Text(context.translate('Overtemperature cut-off')),
+                  value: Selector<ControllerSettingsViewModel, int?>(
+                    selector: (context, vm) => vm.overtempCutoff.value,
+                    builder: (context, cutoff, child) => Text('$cutoff ℃'),
+                  ),
+                  onPressed: (bc) => _showOvertempCutoffPicker(bc),
+                ),
+            ],
+          ),
+      ],
+    );
   }
 
   void _onOverpowerCutoffChanged(String value) {
@@ -309,43 +276,16 @@ class _ControllerSettingsScreenState extends State<ControllerSettingsScreen> {
     return Theme.of(context).colorScheme.primary;
   }
 
-  void _openColorPicker(int index) {
-    final initialColor = _parseHexColor(widget.vm.getChannelColor(index));
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        Color selected = initialColor;
-        return AlertDialog(
-          title: Text(context.translate('Pick color')),
-          content: SingleChildScrollView(
-            child: ColorPicker(
-              hexInputBar: true,
-              enableAlpha: false,
-              pickerColor: initialColor,
-              onColorChanged: (c) => selected = c,
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(context.translate('Cancel'))),
-            TextButton(
-              onPressed: () {
-                _setChannelColorFromPicker(index, selected);
-                Navigator.of(ctx).pop();
-              },
-              child: Text(context.translate('Apply')),
-            ),
-          ],
-        );
-      },
+  void _editChannel(BuildContext context, int index) {
+    final vm = ChannelSettingsViewModel(
+      index: index,
+      readName: widget.vm.getChannelName,
+      readColor: widget.vm.getChannelColor,
+      writeName: widget.vm.setChannelName,
+      writeColor: widget.vm.setChannelColor,
     );
-  }
-
-  void _setChannelColorFromPicker(int index, Color color) {
-    final hex = _colorToHex(color);
-    setState(() {
-      widget.vm.setChannelColor(index, hex);
-    });
+    final route = MaterialPageRoute(builder: (ctx) => DimmerChannelView(vm: vm));
+    Navigator.push(context, route);
   }
 
   void _showChannelCountPicker(BuildContext context) {
@@ -420,12 +360,5 @@ class _ControllerSettingsScreenState extends State<ControllerSettingsScreen> {
         widget.vm.overtempCutoff.setValue(selectedOption['value'] as int);
       },
     );
-  }
-
-  String _colorToHex(Color color) {
-    final r = color.intRed.toRadixString(16).padLeft(2, '0');
-    final g = color.intGreen.toRadixString(16).padLeft(2, '0');
-    final b = color.intBlue.toRadixString(16).padLeft(2, '0');
-    return '#$r$g$b'.toUpperCase();
   }
 }

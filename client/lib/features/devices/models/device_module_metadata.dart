@@ -2,8 +2,10 @@ import 'package:borneo_app/devices/view_models/abstract_device_summary_view_mode
 import 'package:borneo_app/features/devices/models/device_entity.dart';
 import 'package:borneo_app/core/services/devices/device_manager.dart';
 import 'package:borneo_app/features/devices/view_models/base_device_view_model.dart';
+import 'package:cancellation_token/cancellation_token.dart';
 import 'package:event_bus/event_bus.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_gettext/flutter_gettext/gettext_localizations.dart';
 import 'package:logger/logger.dart';
 import 'package:lw_wot/wot.dart';
 
@@ -19,8 +21,14 @@ abstract class DeviceModuleMetadata {
   final Widget Function(BuildContext context, double iconSize, bool isOnline) deviceIconBuilder;
   final Widget Function(BuildContext context, double iconSize) primaryStateIconBuilder;
   final List<Widget> Function(BuildContext, AbstractDeviceSummaryViewModel) secondaryStatesBuilder;
-  final AbstractDeviceSummaryViewModel Function(DeviceEntity, IDeviceManager, EventBus) createSummaryVM;
-  final Future<WotThing> Function(DeviceEntity, IDeviceManager, {Logger? logger}) createWotThing;
+  final AbstractDeviceSummaryViewModel Function(DeviceEntity, IDeviceManager, EventBus, GettextLocalizations)
+  createSummaryVM;
+  final Future<WotThing> Function(DeviceEntity, IDeviceManager, {Logger? logger, CancellationToken? cancelToken})
+  createWotThing;
+
+  /// Optional: supply a custom center widget for the device card.
+  /// When null the card falls back to [deviceIconBuilder].
+  final Widget Function(BuildContext context, AbstractDeviceSummaryViewModel vm)? summaryContentBuilder;
 
   const DeviceModuleMetadata({
     required this.id,
@@ -33,5 +41,6 @@ abstract class DeviceModuleMetadata {
     required this.secondaryStatesBuilder,
     required this.createSummaryVM,
     required this.createWotThing,
+    this.summaryContentBuilder,
   });
 }

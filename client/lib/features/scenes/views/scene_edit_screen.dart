@@ -8,6 +8,7 @@ import 'package:flutter_gettext/flutter_gettext/context_ext.dart';
 
 import '../../../core/services/scene_manager.dart';
 import '../../../core/services/app_notification_service.dart';
+import '../../../core/exceptions/scene_deletion_exceptions.dart';
 import '../models/scene_edit_arguments.dart';
 import '../view_models/scene_edit_view_model.dart';
 import '../../../shared/widgets/confirmation_sheet.dart';
@@ -122,6 +123,7 @@ class _SceneEditScreenState extends State<SceneEditScreen> {
         hintStyle: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).hintColor),
         hintText: context.translate('Enter the required scene name'),
       ),
+      key: const Key('field_scene_name'),
       validator: (value) {
         if (value?.trim().isEmpty ?? true) {
           return context.translate('Please enter the scene name');
@@ -144,6 +146,7 @@ class _SceneEditScreenState extends State<SceneEditScreen> {
         hintText: context.translate('Enter the optional notes for this scene'),
         labelText: context.translate('Notes'),
       ),
+      key: const Key('field_scene_notes'),
       onSaved: (value) {
         vm.updateNotes(value ?? '');
       },
@@ -167,6 +170,7 @@ class _SceneEditScreenState extends State<SceneEditScreen> {
                   }
                 }
               },
+        key: const Key('btn_submit'),
         child: vm.isLoading
             ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
             : Text(context.translate('Submit')),
@@ -175,53 +179,74 @@ class _SceneEditScreenState extends State<SceneEditScreen> {
   }
 
   List<Widget> _buildActions(BuildContext context, SceneEditViewModel vm) {
-    final notificationService = context.read<IAppNotificationService>();
     return [
       if (vm.deletionAvailable)
         IconButton(
-          onPressed: vm.isLoading
-              ? null
-              : () {
-                  showModalBottomSheet(
-                    context: context,
-                    builder: (BuildContext context) {
-                      return ConfirmationSheet(
-                        message: context.translate(
-                          'Are you sure you want to delete this scene? This action cannot be undone.',
-                        ),
-                        okPressed: () async {
-                          final success = await vm.delete();
-                          if (success) {
-                            if (context.mounted) {
-                              Navigator.of(context).pop(true);
-                            }
-                          } else if (context.mounted) {
-                            final error = vm.error;
-                            switch (error) {
-                              case 'last_scene':
-                                notificationService.showWarning(
-                                  context.translate('Cannot Delete Scene'),
-                                  body: context.translate('Cannot delete the last remaining scene.'),
-                                );
-                                break;
-                              case 'devices_or_groups':
-                                notificationService.showWarning(
-                                  context.translate('Cannot Delete Scene'),
-                                  body: context.translate(
-                                    'This scene contains devices or device groups. Please remove all devices and groups from this scene before deleting it.',
-                                  ),
-                                );
-                                break;
-                            }
-                          }
-                        },
-                      );
-                    },
-                  );
-                },
+          key: const Key('btn_delete_scene'),
+          onPressed: vm.isLoading ? null : () => _onDeletePressed(context, vm),
           icon: const Icon(Icons.delete_outline),
         ),
     ];
+  }
+
+  /// Handles deletion logic separated from UI builder.
+  Future<void> _onDeletePressed(BuildContext context, SceneEditViewModel vm) async {
+    final notificationService = context.read<IAppNotificationService>();
+
+    // confirmation using bottom sheet similar to group edit screen
+    final confirmed = await AsyncConfirmationSheet.show(
+      context,
+      message: context.translate(
+        'Are you sure you want to delete "{0}" scene? This action cannot be undone.',
+        pArgs: [vm.name],
+      ),
+    );
+    if (!confirmed) return;
+
+    // show loading indicator on the same navigator so sheet isn't orphaned
+    if (context.mounted) {
+      final loadingContext = context;
+      final loadingNavigator = Navigator.of(loadingContext, rootNavigator: false);
+      showDialog(
+        context: loadingContext,
+        useRootNavigator: false,
+        barrierDismissible: false,
+        builder: (dialogContext) => const Center(child: CircularProgressIndicator()),
+      );
+      try {
+        await vm.delete();
+        if (loadingContext.mounted) {
+          loadingNavigator.pop();
+          if (Navigator.of(loadingContext).canPop()) {
+            Navigator.of(loadingContext).pop(true);
+          }
+          notificationService.showSuccess(loadingContext.translate('Scene deleted'));
+        }
+      } on CannotDeleteLastSceneException {
+        if (loadingContext.mounted) {
+          loadingNavigator.pop();
+          notificationService.showWarning(
+            loadingContext.translate('Cannot Delete Scene'),
+            body: loadingContext.translate('Cannot delete the last remaining scene.'),
+          );
+        }
+      } on SceneContainsDevicesOrGroupsException {
+        if (loadingContext.mounted) {
+          loadingNavigator.pop();
+          notificationService.showWarning(
+            loadingContext.translate('Cannot Delete Scene'),
+            body: loadingContext.translate(
+              'This scene contains devices or device groups. Please remove all devices and groups from this scene before deleting it.',
+            ),
+          );
+        }
+      } catch (error) {
+        if (loadingContext.mounted) {
+          loadingNavigator.pop();
+          notificationService.showError(loadingContext.translate('Delete failed'), body: error.toString());
+        }
+      }
+    }
   }
 
   Future<void> _pickImage(SceneEditViewModel vm, ThemeData theme) async {

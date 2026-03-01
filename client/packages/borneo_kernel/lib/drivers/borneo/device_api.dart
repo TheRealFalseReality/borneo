@@ -29,6 +29,8 @@ class BorneoPaths {
   static final Uri firmwareVersion = Uri(path: '/borneo/fwver');
   static final Uri compatible = Uri(path: '/borneo/compatible');
   static final Uri rtcLocal = Uri(path: '/borneo/rtc/local');
+  static final Uri rtcTimestamp = Uri(path: '/borneo/rtc/ts');
+  static final Uri networkReset = Uri(path: '/borneo/network/reset');
 
   static final Uri nvsU8 = Uri(path: '/borneo/factory/nvs/u8');
   static final Uri nvsU16 = Uri(path: '/borneo/factory/nvs/u16');
@@ -249,7 +251,7 @@ abstract class IBorneoDeviceApi extends IDeviceApi {
   Future<String> getCompatible(Device dev, {CancellationToken? cancelToken});
   Future<Version> getFirmwareVersion(Device dev, {CancellationToken? cancelToken});
 
-  GeneralBorneoDeviceInfo getGeneralDeviceInfo(Device dev);
+  Future<GeneralBorneoDeviceInfo> getGeneralDeviceInfo(Device dev, {CancellationToken? cancelToken});
   Future<GeneralBorneoDeviceStatus> getGeneralDeviceStatus(Device dev, {CancellationToken? cancelToken});
 
   Future<DateTime> getHeartbeat(Device dev, {CancellationToken? cancelToken});
@@ -263,6 +265,8 @@ abstract class IBorneoDeviceApi extends IDeviceApi {
   Future<BorneoRtcLocalNtpResponse> getRtcLocal(Device dev, DateTime timestamp, {CancellationToken? cancelToken});
   Future<void> setRtcLocalSkew(Device dev, Duration skew, {CancellationToken? cancelToken});
 
+  Future<DateTime> getRtcTimestamp(Device dev, {CancellationToken? cancelToken});
+
   Future<SystemMode> getSystemMode(Device dev, {CancellationToken? cancelToken});
 
   Future<String> getTimeZone(Device dev, {CancellationToken? cancelToken});
@@ -273,6 +277,7 @@ abstract class IBorneoDeviceApi extends IDeviceApi {
 
   Future<void> reboot(Device dev, {CancellationToken? cancelToken});
   Future<void> factoryReset(Device dev, {CancellationToken? cancelToken});
+  Future<void> networkReset(Device dev, {CancellationToken? cancelToken});
 
   Future<void> beginCheckNewVersion({CancellationToken? cancelToken});
   Future<bool> isCheckingNewVersionAsync({CancellationToken? cancelToken});
@@ -493,17 +498,20 @@ mixin BorneoDeviceCoapApi on Driver implements IBorneoDeviceApi {
   }
 
   @override
+  Future<DateTime> getRtcTimestamp(Device dev, {CancellationToken? cancelToken}) async {
+    return await this.withQueue(dev, () async {
+      final dd = dev.driverData as BorneoCoapDriverData;
+      final timestamp = await dd.coap.getCbor<int>(BorneoPaths.rtcTimestamp, cancelToken: cancelToken);
+      return DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+    }, cancelToken: cancelToken);
+  }
+
+  @override
   Future setPowerBehavior(Device dev, PowerBehavior behavior, {CancellationToken? cancelToken}) async {
     await this.withQueue(dev, () async {
       final dd = dev.driverData as BorneoCoapDriverData;
       await dd.coap.putCbor(BorneoPaths.powerBehavior, behavior.index, cancelToken: cancelToken);
     }, cancelToken: cancelToken);
-  }
-
-  @override
-  GeneralBorneoDeviceInfo getGeneralDeviceInfo(Device dev) {
-    final dd = dev.driverData as BorneoCoapDriverData;
-    return dd.generalDeviceInfo;
   }
 
   @override
@@ -529,6 +537,21 @@ mixin BorneoDeviceCoapApi on Driver implements IBorneoDeviceApi {
       final dd = dev.driverData as BorneoCoapDriverData;
       final response = await dd.coap.postBytes(
         BorneoPaths.factoryReset,
+        payload: simple_cbor.cbor.encode(null),
+        accept: CoapMediaType.applicationCbor,
+      );
+      if (!response.isSuccess) {
+        throw DeviceError("Failed to put `${response.location}`", dev);
+      }
+    }, cancelToken: cancelToken);
+  }
+
+  @override
+  Future<void> networkReset(Device dev, {CancellationToken? cancelToken}) async {
+    await this.withQueue(dev, () async {
+      final dd = dev.driverData as BorneoCoapDriverData;
+      final response = await dd.coap.postBytes(
+        BorneoPaths.networkReset,
         payload: simple_cbor.cbor.encode(null),
         accept: CoapMediaType.applicationCbor,
       );

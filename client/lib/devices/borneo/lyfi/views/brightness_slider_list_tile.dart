@@ -19,7 +19,7 @@ class BrightnessSliderListTile extends StatelessWidget {
     required this.color,
     this.disabled = false,
     this.min = 0,
-    this.max = lyfiBrightnessMax,
+    this.max = kLyfiBrightnessMax,
     this.trailing,
     required this.onChanged,
   });
@@ -44,7 +44,11 @@ class BrightnessSliderListTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(32),
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
             child: Center(
-              child: Icon(Icons.circle, color: color, size: handlerSize * 0.60),
+              child: Icon(
+                Icons.circle,
+                color: disabled ? color : color.withValues(alpha: 0.38),
+                size: handlerSize * 0.60,
+              ),
             ),
           ),
         ),
@@ -63,12 +67,12 @@ class BrightnessSliderListTile extends StatelessWidget {
           activeTrackBarHeight: 8,
           inactiveTrackBarHeight: 8,
           activeTrackBar: BoxDecoration(
-            border: Border.all(color: Theme.of(context).colorScheme.surfaceContainerLowest, width: 3.0),
-            color: color,
+            border: Border.all(color: Theme.of(context).colorScheme.surfaceDim, width: 1.5),
+            color: disabled ? color.withValues(alpha: 0.38) : color,
             borderRadius: BorderRadius.circular(3),
           ),
           inactiveTrackBar: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerLowest,
+            color: Theme.of(context).colorScheme.surfaceDim,
             borderRadius: BorderRadius.circular(3),
           ),
         ),

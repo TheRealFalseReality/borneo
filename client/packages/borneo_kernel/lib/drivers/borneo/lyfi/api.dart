@@ -6,7 +6,7 @@ import 'package:cancellation_token/cancellation_token.dart';
 typedef MyIntList = List<int>;
 
 abstract class ILyfiDeviceApi extends IBorneoDeviceApi {
-  LyfiDeviceInfo getLyfiInfo(Device dev, {CancellationToken? cancelToken});
+  Future<LyfiDeviceInfo> getLyfiInfo(Device dev, {CancellationToken? cancelToken});
   Future<LyfiDeviceStatus> getLyfiStatus(Device dev, {CancellationToken? cancelToken});
 
   Future<LyfiState> getState(Device dev, {CancellationToken? cancelToken});
@@ -47,6 +47,13 @@ abstract class ILyfiDeviceApi extends IBorneoDeviceApi {
 
   Future<ScheduleTable> getSunSchedule(Device dev, {CancellationToken? cancelToken});
   Future<List<SunCurveItem>> getSunCurve(Device dev, {CancellationToken? cancelToken});
+
+  Future<MoonConfig> getMoonConfig(Device dev, {CancellationToken? cancelToken});
+  Future<void> setMoonConfig(Device dev, MoonConfig config, {CancellationToken? cancelToken});
+  Future<MoonStatus> getMoonStatus(Device dev, {CancellationToken? cancelToken});
+
+  Future<ScheduleTable> getMoonSchedule(Device dev, {CancellationToken? cancelToken});
+  Future<List<MoonCurveItem>> getMoonCurve(Device dev, {CancellationToken? cancelToken});
 
   /// Gets the current fan mode.
   Future<FanMode> getFanMode(Device dev, {CancellationToken? cancelToken});

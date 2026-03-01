@@ -11,11 +11,6 @@ class LyfiStateChangedEvent extends DeviceStateChangedEvent {
   const LyfiStateChangedEvent(super.device, {required this.state});
 }
 
-class LyfiScheduleChangedEvent extends DeviceStateChangedEvent {
-  final ScheduleTable schedule;
-  const LyfiScheduleChangedEvent(super.device, {required this.schedule});
-}
-
 class LyfiAcclimationChangedEvent extends DeviceStateChangedEvent {
   final AcclimationSettings settings;
   const LyfiAcclimationChangedEvent(super.device, {required this.settings});
@@ -29,4 +24,19 @@ class LyfiLocationChangedEvent extends DeviceStateChangedEvent {
 class LyfiCorrectionMethodChangedEvent extends DeviceStateChangedEvent {
   final LedCorrectionMethod method;
   const LyfiCorrectionMethodChangedEvent(super.device, {required this.method});
+}
+
+class LyfiMoonConfigChangedEvent extends DeviceStateChangedEvent {
+  final MoonConfig config;
+  const LyfiMoonConfigChangedEvent(super.device, {required this.config});
+}
+
+class LyfiMoonScheduleChangedEvent extends DeviceStateChangedEvent {
+  final ScheduleTable schedule;
+  const LyfiMoonScheduleChangedEvent(super.device, {required this.schedule});
+}
+
+class LyfiMoonCurveChangedEvent extends DeviceStateChangedEvent {
+  final List<MoonCurveItem> curve;
+  const LyfiMoonCurveChangedEvent(super.device, {required this.curve});
 }

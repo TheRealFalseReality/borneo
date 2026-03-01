@@ -31,7 +31,6 @@ class SceneManagerImpl extends ISceneManager {
   final IClock clock;
   bool _isInitialized = false;
 
-  late final IGroupManager _groupManager;
   late final IDeviceManager _deviceManager;
 
   late SceneEntity _current;
@@ -54,7 +53,6 @@ class SceneManagerImpl extends ISceneManager {
     if (_isInitialized) {
       return;
     }
-    _groupManager = groupManager;
     _deviceManager = deviceManager;
     return await _db.transaction((tx) async {
       await _ensureCurrentSceneExists(tx);
@@ -235,6 +233,11 @@ class SceneManagerImpl extends ISceneManager {
         throw InvalidOperationException(message: 'Failed to update record');
       }
       final scene = SceneEntity.fromMap(id, record);
+      // if this is the current scene, keep _current in sync so callers using
+      // the getter see the latest values without requiring a reload.
+      if (_current.id == id) {
+        _current = scene;
+      }
       _globalEventBus.fire(SceneUpdatedEvent(scene));
       return scene;
     }
