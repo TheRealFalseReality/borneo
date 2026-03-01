@@ -53,6 +53,13 @@ This project delivers a full-stack solution for smart aquarium LED:
 
 ### Hardware
 
+| Directory | Content | Description |
+| :--- | :--- | :--- |
+| [**`hw/`**](hw/) | **Hardware** | PCB designs (Horizon EDA), 3D models, and PDF schematics.[^2] |
+| [**`fw/`**](fw/) | **Firmware** | ESP-IDF source code for LED controllers and upcoming devices. |
+| [**`esphome/`**](esphome/) | **ESPHome Config** | ESPHome YAML configuration for Home Assistant integration. |
+| [**`client/`**](client/) | **Mobile App** | Flutter source code for the cross-platform mobile application. |
+| [**`borneopy/`**](borneopy/) | **Python SDK** | Python client library for desktop control and scripting. |
 - **6 or 10 PWM channels**, 12-bit resolution (4096 steps), up to 19kHz
 - **Flicker-free**, suitable for aquarium photography
 - **22×30mm core module**, fits slim LED fixtures
@@ -95,14 +102,17 @@ This project delivers a full-stack solution for smart aquarium LED:
 - **New Users**: Check out our [**Quick Start Guide**](https://docs.borneoiot.com/getting-started/quick-start.html).
 - If you are a new user looking to quickly experience our firmware, you can directly use our web firmware flasher to flash the latest version of the firmware to your ESP32 series development board: https://flasher.borneoiot.com/
 - **Hardware**: Find schematics and BoM files in the [`hw/`](hw/) directory.
-- **Firmware**: Compilation instructions are available in the [`fw/`](fw/) folder.
+- **Firmware Options**:
+  - **ESP-IDF** (Original): Compilation instructions in the [`fw/`](fw/) folder.
+  - **ESPHome** (Home Assistant): Quick setup guide in the [`esphome/`](esphome/) folder.
 
 ## Project Status
 
 | Component | Status | Details |
 | :--- | :--- | :--- |
 | **Hardware** | Stable | Production-ready, OSHWA certified. |
-| **Firmware** | Beta | Full-featured and stable on my personal tanks for years. |
+| **Firmware (ESP-IDF)** | Beta | Full-featured and stable on my personal tanks for years. |
+| **Firmware (ESPHome)** | New | Home Assistant native integration available. |
 | **Mobile App** | Beta | Core functionality working. |
 
 ## Roadmap

@@ -1,0 +1,410 @@
+# Home Assistant Automation Examples for Borneo ESPHome LED Controller
+
+# This file contains example automations that can be added to your Home Assistant
+# configuration.yaml or automations.yaml file
+
+# ===== SUNRISE/SUNSET SIMULATION =====
+
+# Gradual sunrise starting 1 hour before actual sunrise
+- id: aquarium_sunrise
+  alias: "Aquarium Sunrise Simulation"
+  description: "Gradually increase LED brightness to simulate sunrise"
+  trigger:
+    - platform: sun
+      event: sunrise
+      offset: "-01:00:00"  # Start 1 hour before sunrise
+  action:
+    - service: light.turn_on
+      target:
+        entity_id:
+          - light.led_channel_0_red
+          - light.led_channel_1_green
+          - light.led_channel_2_blue
+          - light.led_channel_3_warm_white
+          - light.led_channel_5_cool_white
+      data:
+        brightness_pct: 1
+    - delay: "00:00:05"
+    - service: light.turn_on
+      target:
+        entity_id:
+          - light.led_channel_0_red
+          - light.led_channel_1_green
+          - light.led_channel_2_blue
+          - light.led_channel_3_warm_white
+          - light.led_channel_5_cool_white
+      data:
+        brightness_pct: 100
+        transition: 3600  # 1 hour (3600 seconds) gradual transition
+
+# Gradual sunset ending 1 hour after actual sunset
+- id: aquarium_sunset
+  alias: "Aquarium Sunset Simulation"
+  description: "Gradually decrease LED brightness to simulate sunset"
+  trigger:
+    - platform: sun
+      event: sunset
+      offset: "00:00:00"  # Start at actual sunset
+  action:
+    - service: light.turn_on
+      target:
+        entity_id:
+          - light.led_channel_0_red
+          - light.led_channel_1_green
+          - light.led_channel_2_blue
+          - light.led_channel_3_warm_white
+          - light.led_channel_5_cool_white
+      data:
+        brightness_pct: 5
+        transition: 3600  # 1 hour transition to 5%
+    - delay: "01:00:00"
+    - service: light.turn_off
+      target:
+        entity_id:
+          - light.led_channel_0_red
+          - light.led_channel_1_green
+          - light.led_channel_2_blue
+          - light.led_channel_3_warm_white
+          - light.led_channel_5_cool_white
+      data:
+        transition: 300  # 5 minute transition to off
+
+# Moonlight mode at night
+- id: aquarium_moonlight
+  alias: "Aquarium Moonlight Mode"
+  description: "Enable dim blue light during night hours"
+  trigger:
+    - platform: time
+      at: "22:00:00"
+  action:
+    - service: light.turn_off
+      target:
+        entity_id:
+          - light.led_channel_0_red
+          - light.led_channel_1_green
+          - light.led_channel_3_warm_white
+          - light.led_channel_4_uv_purple
+          - light.led_channel_5_cool_white
+    - service: light.turn_on
+      target:
+        entity_id: light.led_channel_2_blue
+      data:
+        brightness_pct: 1
+
+# ===== SCHEDULED LIGHTING =====
+
+# Morning schedule (8 AM - start day cycle)
+- id: aquarium_morning
+  alias: "Aquarium Morning Lighting"
+  trigger:
+    - platform: time
+      at: "08:00:00"
+  action:
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch0_brightness
+      data:
+        value: 1024  # 25% Red
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch1_brightness
+      data:
+        value: 2048  # 50% Green
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch2_brightness
+      data:
+        value: 3072  # 75% Blue
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch3_brightness
+      data:
+        value: 3584  # 87.5% Warm White
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch5_brightness
+      data:
+        value: 3072  # 75% Cool White
+
+# Midday peak (12 PM - full intensity)
+- id: aquarium_midday
+  alias: "Aquarium Midday Peak Lighting"
+  trigger:
+    - platform: time
+      at: "12:00:00"
+  action:
+    - service: number.set_value
+      target:
+        entity_id: 
+          - number.manual_ch0_brightness
+          - number.manual_ch1_brightness
+          - number.manual_ch2_brightness
+          - number.manual_ch3_brightness
+          - number.manual_ch4_brightness
+          - number.manual_ch5_brightness
+      data:
+        value: 4095  # 100% all channels
+
+# Evening (6 PM - reduce intensity)
+- id: aquarium_evening
+  alias: "Aquarium Evening Lighting"
+  trigger:
+    - platform: time
+      at: "18:00:00"
+  action:
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch0_brightness
+      data:
+        value: 2048  # 50% Red
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch1_brightness
+      data:
+        value: 2560  # 62.5% Green
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch2_brightness
+      data:
+        value: 2048  # 50% Blue
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch3_brightness
+      data:
+        value: 3072  # 75% Warm White
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch4_brightness
+      data:
+        value: 512   # 12.5% UV
+    - service: number.set_value
+      target:
+        entity_id: number.manual_ch5_brightness
+      data:
+        value: 2048  # 50% Cool White
+
+# ===== CLOUD EFFECTS =====
+
+# Random cloud shadow effect (runs periodically during the day)
+- id: aquarium_cloud_effect
+  alias: "Aquarium Random Cloud Shadow"
+  description: "Randomly dim lights briefly to simulate cloud passing"
+  trigger:
+    - platform: time_pattern
+      minutes: "/23"  # Trigger every 23 minutes
+  condition:
+    - condition: time
+      after: "10:00:00"
+      before: "17:00:00"
+    - condition: template
+      value_template: "{{ states('switch.enable_cloud_effects') == 'on' }}"
+    - condition: template
+      value_template: "{{ range(0, 100) | random > 60 }}"  # 40% chance
+  action:
+    # Store current brightness levels
+    - service: scene.create
+      data:
+        scene_id: before_cloud
+        snapshot_entities:
+          - light.led_channel_0_red
+          - light.led_channel_1_green
+          - light.led_channel_2_blue
+          - light.led_channel_3_warm_white
+          - light.led_channel_4_uv_purple
+          - light.led_channel_5_cool_white
+    # Dim to 70% over 2 seconds
+    - service: light.turn_on
+      target:
+        entity_id:
+          - light.led_channel_0_red
+          - light.led_channel_1_green
+          - light.led_channel_2_blue
+          - light.led_channel_3_warm_white
+          - light.led_channel_4_uv_purple
+          - light.led_channel_5_cool_white
+      data:
+        brightness_pct: 70
+        transition: 2
+    # Wait 5-10 seconds
+    - delay: "00:00:{{ range(5, 11) | random }}"
+    # Restore previous brightness over 3 seconds
+    - service: scene.turn_on
+      target:
+        entity_id: scene.before_cloud
+      data:
+        transition: 3
+
+# ===== ACCLIMATION MODE =====
+
+# 30-day acclimation schedule (gradually increase max brightness)
+# This automation runs daily and calculates the appropriate brightness
+# based on the number of days since acclimation started
+- id: aquarium_acclimation_mode
+  alias: "Aquarium Acclimation Mode"
+  description: "Gradually increase maximum brightness over 30 days"
+  trigger:
+    - platform: time
+      at: "12:00:00"  # Adjust daily at noon
+  condition:
+    - condition: state
+      entity_id: switch.enable_acclimation_mode
+      state: "on"
+  action:
+    - service: python_script.acclimation_adjust
+      data_template:
+        start_date: "2024-01-01"  # Set your acclimation start date
+        duration_days: 30
+        start_percent: 30  # Start at 30% of full brightness
+        end_percent: 100   # End at 100% of full brightness
+
+# Note: The above automation requires a python_script. 
+# Alternatively, use input_number helpers and calculate manually:
+
+# Manual acclimation helper (simpler approach)
+- id: aquarium_acclimation_manual
+  alias: "Aquarium Manual Acclimation"
+  description: "Use input_number.acclimation_day to control max brightness"
+  trigger:
+    - platform: time
+      at: "12:00:00"
+  action:
+    - service: number.set_value
+      target:
+        entity_id:
+          - number.manual_ch0_brightness
+          - number.manual_ch1_brightness
+          - number.manual_ch2_brightness
+          - number.manual_ch3_brightness
+          - number.manual_ch4_brightness
+          - number.manual_ch5_brightness
+      data:
+        value: >
+          {% set acclimation_day = states('input_number.acclimation_day') | int %}
+          {% set max_days = 30 %}
+          {% set start_brightness = 1228 %}  {# 30% of 4095 #}
+          {% set end_brightness = 4095 %}    {# 100% #}
+          {% set progress = (acclimation_day / max_days) | float %}
+          {% set current_max = start_brightness + (end_brightness - start_brightness) * progress %}
+          {{ current_max | int }}
+
+# ===== TEMPERATURE ALERTS =====
+
+# High temperature warning
+- id: aquarium_high_temp_warning
+  alias: "Aquarium High Temperature Warning"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.board_temperature
+      above: 50
+  action:
+    - service: notify.mobile_app_your_phone
+      data:
+        message: "⚠️ Aquarium controller temperature is {{ states('sensor.board_temperature') }}°C!"
+        title: "High Temperature Alert"
+    - service: persistent_notification.create
+      data:
+        title: "Aquarium High Temperature"
+        message: "Temperature has reached {{ states('sensor.board_temperature') }}°C. Check cooling system."
+
+# Temperature back to normal
+- id: aquarium_temp_normal
+  alias: "Aquarium Temperature Normal"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.board_temperature
+      below: 45
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.board_temperature
+      above: 50
+      value_template: "{{ state_attr(this.entity_id, 'previous_state') }}"
+  action:
+    - service: notify.mobile_app_your_phone
+      data:
+        message: "✅ Aquarium controller temperature back to normal: {{ states('sensor.board_temperature') }}°C"
+        title: "Temperature Normal"
+
+# ===== OFFLINE DETECTION =====
+
+# Device offline notification
+- id: aquarium_offline_alert
+  alias: "Aquarium Controller Offline"
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.borneo_aquarium_led_status
+      to: "unavailable"
+      for: "00:05:00"
+  action:
+    - service: notify.mobile_app_your_phone
+      data:
+        message: "Aquarium LED controller has been offline for 5 minutes"
+        title: "Device Offline Alert"
+
+# ===== WEEKEND SPECIAL MODE =====
+
+# Enhanced weekend lighting (brighter and longer)
+- id: aquarium_weekend_mode
+  alias: "Aquarium Weekend Enhanced Lighting"
+  trigger:
+    - platform: time
+      at: "10:00:00"
+  condition:
+    - condition: time
+      weekday:
+        - sat
+        - sun
+  action:
+    - service: select.select_option
+      target:
+        entity_id: select.led_control_mode
+      data:
+        option: "Manual"
+    - service: number.set_value
+      target:
+        entity_id:
+          - number.manual_ch0_brightness
+          - number.manual_ch1_brightness
+          - number.manual_ch2_brightness
+          - number.manual_ch3_brightness
+          - number.manual_ch4_brightness
+          - number.manual_ch5_brightness
+      data:
+        value: 4095  # Full brightness
+
+# ===== LOVELACE DASHBOARD EXAMPLE =====
+
+# Add this to your Lovelace dashboard configuration for a complete control panel:
+
+# type: vertical-stack
+# cards:
+#   - type: entities
+#     title: Borneo LED Controller
+#     entities:
+#       - entity: select.led_control_mode
+#       - entity: select.brightness_correction
+#       - entity: switch.enable_thermal_control
+#       - entity: switch.enable_sun_simulation
+#       - entity: switch.enable_acclimation_mode
+#   - type: entities
+#     title: LED Channels
+#     entities:
+#       - entity: light.led_channel_0_red
+#       - entity: light.led_channel_1_green
+#       - entity: light.led_channel_2_blue
+#       - entity: light.led_channel_3_warm_white
+#       - entity: light.led_channel_4_uv_purple
+#       - entity: light.led_channel_5_cool_white
+#   - type: entities
+#     title: Thermal Management
+#     entities:
+#       - entity: sensor.board_temperature
+#       - entity: number.target_temperature
+#       - entity: fan.cooling_fan
+#       - entity: number.pid_kp
+#       - entity: number.pid_ki
+#       - entity: number.pid_kd
+#   - type: history-graph
+#     title: Temperature History
+#     hours_to_show: 24
+#     entities:
+#       - entity: sensor.board_temperature

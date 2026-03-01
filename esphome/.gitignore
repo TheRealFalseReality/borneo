@@ -1,0 +1,21 @@
+# ESPHome build files
+.esphome/
+**/.esphome/
+
+# Compiled firmware
+*.bin
+*.elf
+
+# Secrets
+secrets.yaml
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
