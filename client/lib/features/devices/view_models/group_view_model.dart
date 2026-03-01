@@ -4,7 +4,7 @@ import 'package:borneo_app/features/devices/models/device_group_entity.dart';
 
 import '../../../shared/view_models/base_view_model.dart';
 
-class GroupViewModel extends BaseViewModel {
+class GroupViewModel extends BaseViewModel with ViewModelEventBusMixin {
   List<AbstractDeviceSummaryViewModel> _devices = [];
   final IClock clock;
   late int _lastModified;
@@ -19,7 +19,7 @@ class GroupViewModel extends BaseViewModel {
 
   bool get isEmpty => _devices.isEmpty;
 
-  GroupViewModel(this.model, {required this.clock}) {
+  GroupViewModel(this.model, {required this.clock, required super.gt}) {
     _lastModified = this.clock.now().millisecondsSinceEpoch;
   }
 
@@ -27,8 +27,25 @@ class GroupViewModel extends BaseViewModel {
     _lastModified = this.clock.now().millisecondsSinceEpoch;
   }
 
-  void addDevice(AbstractDeviceSummaryViewModel device) {
-    _devices = [..._devices, device];
+  void addOrUpdateDevice(AbstractDeviceSummaryViewModel device) {
+    final existingIndex = _devices.indexWhere((d) => d.deviceEntity.id == device.deviceEntity.id);
+    if (existingIndex == -1) {
+      // New device VM: take ownership and manage its lifecycle.
+      _devices = [..._devices, device];
+    } else {
+      // Existing VM present -> perform in-place update to preserve identity.
+      final existing = _devices[existingIndex];
+
+      // Merge state from the incoming (temporary) VM into the existing VM.
+      // Subclasses can override `updateFrom` to merge ValueNotifier state etc.
+      existing.updateFrom(device);
+
+      // The passed-in `device` was only a carrier/temporary instance created by
+      // the factory; dispose it immediately since `existing` remains authoritative.
+      if (!device.isDisposed) {
+        device.dispose();
+      }
+    }
     _updateModified();
     notifyListeners();
   }
@@ -63,7 +80,7 @@ class GroupViewModel extends BaseViewModel {
     }
     _devices = [];
     _updateModified();
-    notifyListeners();
+    if (!isDisposed) notifyListeners();
   }
 
   @override
@@ -72,10 +89,5 @@ class GroupViewModel extends BaseViewModel {
       clearDevices();
       super.dispose();
     }
-  }
-
-  @override
-  void notifyAppError(String message, {Object? error, StackTrace? stackTrace}) {
-    // TODO
   }
 }

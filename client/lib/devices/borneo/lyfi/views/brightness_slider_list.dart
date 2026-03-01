@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:borneo_app/core/utils/hex_color.dart';
 import '../view_models/editor/ieditor.dart';
 import 'brightness_slider_list_tile.dart';
-import 'package:borneo_app/shared/widgets/screen_top_rounded_container.dart';
 
 class BrightnessSliderList<TEditor extends IEditor> extends StatelessWidget {
   final TEditor editor;
@@ -21,7 +20,7 @@ class BrightnessSliderList<TEditor extends IEditor> extends StatelessWidget {
         valueListenable: editor.channels[index],
         builder: (context, channelValue, child) => BrightnessSliderListTile(
           channelName: channelInfo.name,
-          max: lyfiBrightnessMax,
+          max: kLyfiBrightnessMax,
           min: 0,
           value: channelValue,
           color: HexColor.fromHex(channelInfo.color),
@@ -39,7 +38,7 @@ class BrightnessSliderList<TEditor extends IEditor> extends StatelessWidget {
               ),
               SizedBox(height: 4),
               Text(
-                '${(channelValue / lyfiBrightnessMax * 100.0).toStringAsFixed(1).padLeft(5, '\u2007')}%',
+                '${(channelValue / kLyfiBrightnessMax * 100.0).toStringAsFixed(1).padLeft(5, '\u2007')}%',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(fontFeatures: [FontFeature.tabularFigures()]),
               ),
             ],
@@ -51,17 +50,14 @@ class BrightnessSliderList<TEditor extends IEditor> extends StatelessWidget {
       );
       sliders.add(slider);
     }
-    return ScreenTopRoundedContainer(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      padding: padding,
-      child: ListView.separated(
-        shrinkWrap: true,
-        physics: NeverScrollableScrollPhysics(),
-        primary: true,
-        itemCount: editor.availableChannelCount,
-        itemBuilder: (context, index) => sliders[index],
-        separatorBuilder: (context, index) => Divider(height: 1, color: Theme.of(context).dividerColor),
-      ),
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: NeverScrollableScrollPhysics(),
+      primary: false,
+      padding: EdgeInsets.zero,
+      itemCount: editor.availableChannelCount,
+      itemBuilder: (context, index) => sliders[index],
+      separatorBuilder: (context, index) => Divider(height: 1, color: Theme.of(context).dividerColor),
     );
   }
 }

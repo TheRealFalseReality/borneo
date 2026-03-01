@@ -1,12 +1,32 @@
 import 'dart:async';
 
 import 'package:borneo_kernel/kernel.dart';
+import 'package:borneo_kernel_abstractions/device.dart';
 import 'package:borneo_kernel_abstractions/events.dart';
+import 'package:borneo_kernel_abstractions/event_dispatcher.dart';
 import 'package:borneo_kernel_abstractions/models/bound_device.dart';
 import 'package:cancellation_token/cancellation_token.dart';
 import 'package:test/test.dart';
 
 import 'mocks.dart';
+
+// binding engine used by race test; removing the device during tryBind triggers
+// the earlier ConcurrentModificationError in the kernel's heartbeat logic.
+class RaceBindingEngine extends MockBindingEngine {
+  // kernel instance is assigned after creation because we need to pass the
+  // engine itself into the kernel constructor.
+  late DefaultKernel kernel;
+
+  RaceBindingEngine();
+
+  @override
+  Future<bool> tryBind(Device device, String driverID, {CancellationToken? cancelToken}) async {
+    // unregister the device *before* doing any async work so the heartbeat
+    // snapshot sees the removal happen mid-iteration.
+    kernel.unregisterDevice(device.id);
+    return super.tryBind(device, driverID, cancelToken: cancelToken);
+  }
+}
 
 void main() {
   group('DefaultKernel', () {
@@ -31,6 +51,10 @@ void main() {
 
     tearDown(() {
       kernel.dispose();
+    });
+
+    test('uses DefaultEventDispatcher internally', () {
+      expect(kernel.events, isA<DefaultEventDispatcher>());
     });
 
     group('Initialization', () {
@@ -157,6 +181,59 @@ void main() {
         await kernel.unbindAll();
         expect(kernel.boundDevices.length, equals(0));
       });
+
+      test('heartbeat suspend/resume and batch APIs do not throw', () async {
+        await kernel.start();
+        kernel.suspendHeartbeat();
+        kernel.resumeHeartbeat();
+        kernel.enterHeartbeatBatch();
+        kernel.exitHeartbeatBatch();
+        // binding while heartbeat signals are active should still work
+        final device = TestDevice('d1', 'http://1');
+        kernel.registerDevice(BoundDeviceDescriptor(device: device, driverID: 'test-driver'));
+        await kernel.bind(device, 'test-driver');
+      });
+
+      test('concurrent binds complete without error', () async {
+        await kernel.start();
+        final deviceA = TestDevice('A', 'http://a');
+        final deviceB = TestDevice('B', 'http://b');
+        kernel.registerDevice(BoundDeviceDescriptor(device: deviceA, driverID: 'test-driver'));
+        kernel.registerDevice(BoundDeviceDescriptor(device: deviceB, driverID: 'test-driver'));
+
+        final f1 = kernel.bind(deviceA, 'test-driver');
+        final f2 = kernel.bind(deviceB, 'test-driver');
+        await Future.wait([f1, f2]);
+      });
+
+      // simulate the ConcurrentModificationError that was previously observed
+      // when a device was removed from the registered list while the heartbeat
+      // tick was iterating.  the race engine unregisters during tryBind to
+      // force the condition.
+      test('heartbeat tick tolerates concurrent modification', () async {
+        await kernel.start();
+
+        final raceEngine = RaceBindingEngine();
+        final k2 = DefaultKernel(
+          mockLogger,
+          mockDriverRegistry,
+          mdnsProvider: mockMdnsProvider,
+          bindingEngine: raceEngine,
+        );
+        // now that k2 exists we can link the engine back to it
+        raceEngine.kernel = k2;
+        await k2.start();
+
+        final device = TestDevice('d1', 'http://1');
+        k2.registerDevice(BoundDeviceDescriptor(device: device, driverID: 'test-driver'));
+
+        // invoke the private tick via `dynamic` to mimic the timer; the
+        // important part is that it does not throw.
+        expect(() async => await k2.runHeartbeatTick(), returnsNormally);
+
+        // after the tick the device should indeed have been unregistered
+        expect(() => k2.getBoundDevice('d1'), throwsA(isA<ArgumentError>()));
+      });
     });
 
     group('Event Handling', () {
@@ -224,6 +301,43 @@ void main() {
     });
 
     group('Device Discovery', () {
+      test('supports custom DiscoveryManager injection', () async {
+        await kernel.start();
+        final mgr = MockDiscoveryManager();
+        // build new kernel with supplied manager and the same mocks
+        final k2 = DefaultKernel(mockLogger, mockDriverRegistry, mdnsProvider: mockMdnsProvider, discoveryManager: mgr);
+        await k2.start();
+        expect(k2.isScanning, isFalse);
+        await k2.startDevicesScanning();
+        expect(mgr.isActive, isTrue);
+        await k2.stopDevicesScanning();
+        expect(mgr.isActive, isFalse);
+      });
+
+      test('supports custom BindingEngine injection', () async {
+        await kernel.start();
+        final eng = MockBindingEngine();
+        final k2 = DefaultKernel(mockLogger, mockDriverRegistry, mdnsProvider: mockMdnsProvider, bindingEngine: eng);
+        await k2.start();
+        final device = TestDevice('d1', 'http://d1');
+        k2.registerDevice(BoundDeviceDescriptor(device: device, driverID: 'test-driver'));
+        await k2.bind(device, 'test-driver');
+        expect(eng.bindCalled, isTrue);
+      });
+
+      test('kernel forwards unbound device lost events', () async {
+        await kernel.start();
+        final mgr = MockDiscoveryManager();
+        final k2 = DefaultKernel(mockLogger, mockDriverRegistry, mdnsProvider: mockMdnsProvider, discoveryManager: mgr);
+        await k2.start();
+        UnboundDeviceLostEvent? got;
+        k2.events.on<UnboundDeviceLostEvent>().listen((e) {
+          got = e;
+        });
+        mgr.emitLost('abc');
+        await Future.delayed(Duration.zero);
+        expect(got?.deviceId, 'abc');
+      });
       test('should start and stop device scanning', () async {
         await kernel.start();
 

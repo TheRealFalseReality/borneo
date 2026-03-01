@@ -29,7 +29,7 @@ class DashboardPowerTile extends StatelessWidget {
         final disabledColor = theme.colorScheme.onSurface.withValues(alpha: 0.38);
         final Color fgColor = theme.colorScheme.onSurface;
         final Color arcColor = theme.colorScheme.outlineVariant;
-        final Color progressColor = isOnline ? theme.colorScheme.tertiary : disabledColor;
+        final Color progressColor = isOnline ? theme.colorScheme.primary : disabledColor;
         final Color textPrimary = theme.colorScheme.primary;
         final Color textOnSurface = theme.colorScheme.onSurface;
         return ListenableBuilder(
@@ -58,16 +58,27 @@ class DashboardPowerTile extends StatelessWidget {
                       ...() {
                         final double watts = vm.currentWatts.value!;
                         final int intPart = watts.round();
-                        final bool isZero = watts == 0;
-                        return [
-                          RollingInteger(
-                            value: isZero ? 0 : intPart,
-                            textStyle: theme.textTheme.headlineLarge?.copyWith(
-                              color: textPrimary,
-                              fontFeatures: [FontFeature.tabularFigures()],
+                        final String powerStr = intPart.toString().padLeft(3, '0');
+                        final List<String> digits = powerStr.split('');
+                        final List<Widget> digitWidgets = [];
+                        for (int i = 0; i < digits.length; i++) {
+                          final String digit = digits[i];
+                          final bool isLeadingZero =
+                              i < digits.length - 1 && digit == '0' && digits.sublist(0, i).every((c) => c == '0');
+                          final Color color = isLeadingZero ? arcColor : textPrimary;
+                          digitWidgets.add(
+                            RollingInteger(
+                              value: int.parse(digit),
+                              textStyle: theme.textTheme.headlineLarge?.copyWith(
+                                color: color,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
+                              duration: const Duration(milliseconds: 200),
                             ),
-                            duration: const Duration(milliseconds: 300),
-                          ),
+                          );
+                        }
+                        return [
+                          ...digitWidgets,
                           Text(
                             'W',
                             style: theme.textTheme.labelMedium?.copyWith(
@@ -80,7 +91,7 @@ class DashboardPowerTile extends StatelessWidget {
                     else ...[
                       Text(
                         context.translate("N/A"),
-                        style: theme.textTheme.titleLarge?.copyWith(
+                        style: theme.textTheme.headlineLarge?.copyWith(
                           color: theme.colorScheme.outlineVariant,
                           fontFeatures: [FontFeature.tabularFigures()],
                         ),
@@ -88,32 +99,34 @@ class DashboardPowerTile extends StatelessWidget {
                     ],
                   ],
                 ),
-                if (props.canMeasurePower && isOnline) const Divider(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (props.canMeasureVoltage && isOnline)
-                      Text(
-                        '${vm.currentVoltage.value!.toStringAsFixed(1)}V',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: textOnSurface,
-                          fontFeatures: [FontFeature.tabularFigures()],
+                if (props.canMeasurePower && isOnline) ...[
+                  const Divider(height: 8, thickness: 2.5),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (props.canMeasureVoltage && isOnline)
+                        Text(
+                          '${vm.currentVoltage.value!.toStringAsFixed(1)}V',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: textOnSurface,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
                         ),
-                      ),
-                    if (props.canMeasureCurrent && isOnline) const SizedBox(width: 4),
-                    if (props.canMeasureCurrent && isOnline)
-                      Text("·", style: theme.textTheme.bodySmall?.copyWith(color: textOnSurface)),
-                    if (props.canMeasureCurrent && isOnline) const SizedBox(width: 4),
-                    if (vm.canMeasureCurrent && isOnline)
-                      Text(
-                        '${vm.currentCurrent.value!.toStringAsFixed(1)}A',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: textOnSurface,
-                          fontFeatures: [FontFeature.tabularFigures()],
+                      if (props.canMeasureCurrent && isOnline) const SizedBox(width: 4),
+                      if (props.canMeasureCurrent && isOnline)
+                        Text("·", style: theme.textTheme.bodySmall?.copyWith(color: textOnSurface)),
+                      if (props.canMeasureCurrent && isOnline) const SizedBox(width: 4),
+                      if (vm.canMeasureCurrent && isOnline)
+                        Text(
+                          '${vm.currentCurrent.value!.toStringAsFixed(1)}A',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: textOnSurface,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
                         ),
-                      ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),

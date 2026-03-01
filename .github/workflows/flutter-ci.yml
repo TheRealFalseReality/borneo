@@ -14,7 +14,6 @@ on:
       - 'client/**'
       - '.github/workflows/flutter-ci.yml'
   workflow_dispatch:
-
 env:
   FLUTTER_WORKING_DIR: client
 
@@ -43,6 +42,9 @@ jobs:
           key: ${{ runner.os }}-pub-cache-${{ hashFiles('client/pubspec.yaml', 'client/pubspec.lock', 'client/packages/*/pubspec.yaml') }}
           restore-keys: ${{ runner.os }}-pub-cache-
 
+      - name: Add pub cache to PATH
+        run: echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
+
       - name: Activate melos and bootstrap
         run: |
           dart pub global activate melos
@@ -54,10 +56,20 @@ jobs:
       - name: Run analyze
         run: melos run analyze
 
-      - name: Run tests
+      - name: Run unit/widget tests
         run: |
-          flutter test --no-pub
+          flutter test
           melos run test:dart --no-select
+
+      - name: Install requirements for desktop integration tests and Linux builds)
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-dev libstdc++-12-dev
+
+      - name: Run linux integration tests
+        if: runner.os == 'Linux'
+        # desktop integration tests run on the same container; wrap in Xvfb
+        run: |
+          xvfb-run flutter test integration_test/app_test.dart -d linux -r github
+
 
   build-apk:
     needs: test
@@ -71,6 +83,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Get build number from git
+        id: get_build_number
+        run: echo "build_number=$(git rev-list --count HEAD)" >> $GITHUB_OUTPUT
 
       - name: Decode keystore from base64
         shell: bash
@@ -87,12 +103,6 @@ jobs:
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword=${{ secrets.KEYSTORE_PASSWORD }}
           EOF
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
 
       - name: Validate Android keystore
         shell: bash
@@ -125,6 +135,9 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('client/**/*.gradle*', 'client/**/gradle-wrapper.properties') }}
           restore-keys: ${{ runner.os }}-gradle-
 
+      - name: Add pub cache to PATH
+        run: echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
+
       - name: Activate melos and bootstrap
         run: |
           dart pub global activate melos
@@ -140,7 +153,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build APK
-        run: flutter build apk --release --target-platform android-arm64 --no-pub --build-number ${{ github.run_number }}
+        run: flutter build apk --release --target-platform android-arm64 --build-number ${{ steps.get_build_number.outputs.build_number }}
 
       - name: Rename APK with version
         run: |
@@ -165,6 +178,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Get build number from git
+        id: get_build_number
+        run: |
+          $count = git rev-list --count HEAD
+          echo "build_number=$count" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -214,7 +233,7 @@ jobs:
           echo "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Build Windows executable
-        run: flutter build windows --release --no-pub --build-number ${{ github.run_number }}
+        run: flutter build windows --release --build-number ${{ steps.get_build_number.outputs.build_number }}
 
       - name: Create and zip Windows release
         run: |
@@ -238,6 +257,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Get build number from git
+        id: get_build_number
+        run: echo "build_number=$(git rev-list --count HEAD)" >> $GITHUB_OUTPUT
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -281,7 +304,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build iOS app (no codesign)
-        run: flutter build ios --release --no-codesign --build-number ${{ github.run_number }}
+        run: flutter build ios --release --no-codesign --build-number ${{ steps.get_build_number.outputs.build_number }}
 
   release:
     needs: [build-apk, build-windows, build-ios]
@@ -304,7 +327,7 @@ jobs:
             echo "prerelease=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create GitHub Release
+      - name: Create Versionized GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: app-ce-v${{ needs.build-apk.outputs.version }}
@@ -315,3 +338,56 @@ jobs:
           files: |
             release-artifacts/borneo-app-ce-${{ needs.build-apk.outputs.version }}.apk
             release-artifacts/borneo-app-ce-${{ needs.build-windows.outputs.version }}-windows-x64.zip
+
+      - name: Manage latest tag via API
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = 'release-app-latest';
+            const refName = `tags/${tag}`;
+            const fullRef = `refs/tags/${tag}`;
+            try {
+              await github.rest.git.deleteRef({ owner: context.repo.owner, repo: context.repo.repo, ref: refName });
+              console.log(`Deleted existing tag ${tag}`);
+            } catch (err) {
+              // GitHub returns 404 _or_ 422 when the tag doesn't exist; ignore both
+              if (err.status === 404 || err.status === 422) {
+                console.log(`Tag ${tag} did not exist, proceeding to create`);
+              } else {
+                throw err;
+              }
+            }
+            await github.rest.git.createRef({ owner: context.repo.owner, repo: context.repo.repo, ref: fullRef, sha: context.sha });
+            console.log(`Created tag ${tag} pointing to ${context.sha}`);
+
+      - name: Delete previous latest app release
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = 'release-app-latest';
+            try {
+              const rel = await github.rest.repos.getReleaseByTag({ owner: context.repo.owner, repo: context.repo.repo, tag });
+              await github.rest.repos.deleteRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: rel.data.id,
+              });
+              console.log('Deleted previous latest app release.');
+            } catch (err) {
+              if (err.status === 404) {
+                console.log('Latest app release not found, nothing to delete.');
+              } else {
+                throw err;
+              }
+            }
+
+      - name: Create GitHub Latest App Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release-app-latest
+          name: Latest App Release
+          draft: false
+          overwrite_files: true
+          files: release-artifacts/*

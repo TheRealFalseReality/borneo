@@ -23,7 +23,7 @@ class ScheduleRunningChart extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
       child: Selector<LyfiViewModel, DateTime>(
-        selector: (context, vm) => vm.deviceClock,
+        selector: (context, vm) => vm.lyfiThing.getProperty<DateTime>('timestamp')!.toLocal(),
         shouldRebuild: (previous, next) => !previous.isEqualToMinute(next),
         builder: (context, clock, _) {
           const minSpanSeconds = 3 * 3600.0;
@@ -46,7 +46,7 @@ class ScheduleRunningChart extends StatelessWidget {
             minX: minX,
             maxX: maxX,
             minY: 0,
-            maxY: lyfiBrightnessMax.toDouble(),
+            maxY: kLyfiBrightnessMax.toDouble(),
             currentTime: Duration(hours: clock.hour, minutes: clock.minute, seconds: clock.second),
             allowZoom: true,
             maxScale: maxScale,
@@ -59,6 +59,16 @@ class ScheduleRunningChart extends StatelessWidget {
   List<LineChartBarData> buildLineData(LyfiViewModel vm, List<ScheduledInstant> instants) {
     final series = <LineChartBarData>[];
     for (int channelIndex = 0; channelIndex < vm.channels.length; channelIndex++) {
+      bool allZero = true;
+      for (final instant in instants) {
+        if (instant.color[channelIndex] != 0) {
+          allZero = false;
+          break;
+        }
+      }
+      if (allZero) {
+        continue;
+      }
       final spots = <FlSpot>[];
       for (final entry in instants) {
         double x = entry.instant.inSeconds.toDouble();
@@ -66,11 +76,10 @@ class ScheduleRunningChart extends StatelessWidget {
         final spot = FlSpot(x, y);
         spots.add(spot);
       }
-      // Skip empty channel
       series.add(
         LineChartBarData(
           isCurved: false,
-          barWidth: 2.5,
+          barWidth: 1.5,
           color: HexColor.fromHex(vm.lyfiDeviceInfo.channels[channelIndex].color),
           dotData: const FlDotData(show: false),
           spots: spots,

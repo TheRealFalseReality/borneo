@@ -1,4 +1,4 @@
-import 'dart:async';
+// (no async timers needed anymore)
 import 'package:flutter/material.dart';
 import 'package:flutter_gettext/flutter_gettext/context_ext.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -59,25 +59,17 @@ class _ChoreCardContent extends StatefulWidget {
 }
 
 class _ChoreCardContentState extends State<_ChoreCardContent> {
-  bool _showProgress = false;
-  Timer? _timer;
+  // Removed delayed progress overlay to avoid execution animation
+
   @override
-  void didUpdateWidget(covariant _ChoreCardContent oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.vm.isBusy && !_showProgress) {
-      _timer?.cancel();
-      _timer = Timer(const Duration(milliseconds: 800), () {
-        if (mounted && widget.vm.isBusy) setState(() => _showProgress = true);
-      });
-    } else if (!widget.vm.isBusy) {
-      _timer?.cancel();
-      if (_showProgress) setState(() => _showProgress = false);
-    }
+  void initState() {
+    super.initState();
+    widget.vm.init();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    // no timers to cancel
     super.dispose();
   }
 
@@ -88,78 +80,72 @@ class _ChoreCardContentState extends State<_ChoreCardContent> {
     final fgColor = widget.fgColor;
     final bgColor = widget.bgColor;
     final colorScheme = widget.colorScheme;
+    const kAnimateDuration = Duration(milliseconds: 300);
+    final textTheme = Theme.of(context).textTheme;
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: Stack(
         children: [
-          Card.filled(
-            margin: EdgeInsets.zero,
-            elevation: 0,
+          AnimatedContainer(
+            duration: kAnimateDuration,
+            curve: Curves.easeInOut,
             color: bgColor,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 350),
-                switchInCurve: Curves.easeInOut,
-                switchOutCurve: Curves.easeInOut,
-                child: Column(
-                  key: ValueKey(isActive.toString() + vm.name),
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final iconSize = (constraints.maxHeight - 16.0).clamp(0.0, double.infinity);
-                          return Align(
-                            alignment: Alignment.centerLeft,
-                            child: _buildIcon(vm.iconAssetPath, iconSize, fgColor),
-                          );
-                        },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final iconSize = (constraints.maxHeight - 16.0).clamp(0.0, double.infinity);
+                        return Align(
+                          alignment: Alignment.centerLeft,
+                          child: _buildIcon(vm.iconAssetPath, iconSize, fgColor),
+                        );
+                      },
+                    ),
+                  ),
+                  Text(
+                    vm.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: textTheme.labelLarge?.fontSize, color: fgColor),
+                  ),
+                  Divider(height: 16, thickness: 1.5, color: fgColor.withValues(alpha: 0.2)),
+                  Row(
+                    children: [
+                      AnimatedSwitcher(
+                        duration: kAnimateDuration,
+                        switchInCurve: Curves.easeInOut,
+                        switchOutCurve: Curves.easeInOut,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            isActive ? context.translate('ACTIVE') : context.translate('INACTIVE'),
+                            key: ValueKey(isActive),
+                            style: TextStyle(
+                              fontSize: textTheme.labelSmall?.fontSize,
+                              color: fgColor.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                    Text(
-                      vm.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 14.0, color: fgColor),
-                    ),
-                    Divider(height: 16, thickness: 1, color: fgColor.withValues(alpha: 0.2)),
-                    Row(
-                      children: [
-                        Text(
-                          isActive ? context.translate('ACTIVE') : context.translate('INACTIVE'),
-                          style: TextStyle(fontSize: 12, color: fgColor.withValues(alpha: 0.7)),
-                        ),
-                        const Spacer(),
-                        Switch(
-                          value: isActive,
-                          onChanged: vm.isBusy
-                              ? null
-                              : (v) async {
-                                  if (v) {
-                                    await vm.executeChore();
-                                  } else {
-                                    await vm.undoChore();
-                                  }
-                                },
-                          activeThumbColor: colorScheme.primary,
-                          inactiveThumbColor: colorScheme.primary,
-                          inactiveTrackColor: colorScheme.surfaceBright,
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                      const Spacer(),
+                      Switch(
+                        value: isActive,
+                        onChanged: vm.isBusy ? null : (v) => v ? vm.executeChore() : vm.undoChore(),
+                        activeThumbColor: colorScheme.primary,
+                        inactiveThumbColor: colorScheme.primary,
+                        inactiveTrackColor: colorScheme.surfaceBright,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),
-          if (_showProgress && vm.isBusy)
-            Positioned.fill(
-              child: Container(
-                color: bgColor.withValues(alpha: 0.6),
-                child: const Center(child: CircularProgressIndicator()),
-              ),
-            ),
+          // Execution progress overlay removed per request (no animation)
         ],
       ),
     );

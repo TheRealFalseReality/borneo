@@ -34,12 +34,10 @@ class ChoresViewModel extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
-  late final StreamSubscription<CurrentSceneChangedEvent> _currentSceneChangedSub;
-  late final StreamSubscription<CurrentSceneDevicesReloadedEvent> _devicesReloadedSub;
+  late final StreamSubscription<ChoresChangedEvent> _choresChangedSub;
 
   void _setupEventListeners() {
-    _currentSceneChangedSub = _eventBus.on<CurrentSceneChangedEvent>().listen(_onCurrentSceneChanged);
-    _devicesReloadedSub = _eventBus.on<CurrentSceneDevicesReloadedEvent>().listen(_onDevicesReloaded);
+    _choresChangedSub = _eventBus.on<ChoresChangedEvent>().listen(_onChoresChanged);
   }
 
   Future<void> initialize() async {
@@ -47,6 +45,7 @@ class ChoresViewModel extends ChangeNotifier {
     _error = null;
     try {
       await _reloadChores();
+      notifyListeners();
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -54,32 +53,30 @@ class ChoresViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> _reloadChores() async {
-    try {
-      _chores = _choreManager.getAvailableChores();
-    } catch (e) {
-      _logger?.e('Failed to reload chores: $e');
-      _error = e.toString();
-    } finally {
-      notifyListeners();
-    }
-  }
-
-  void _onCurrentSceneChanged(CurrentSceneChangedEvent event) {
-    _logger?.d('Scene changed from ${event.from.name} to ${event.to.name}, waiting for devices to reload...');
-    // Enter loading state immediately when the current scene changes so the UI
-    // can show a loading indicator while devices and chores are reloaded.
-    _isLoading = true;
-    _error = null;
-    _chores = [];
+  Future<void> refresh() async {
+    await _reloadChores();
     notifyListeners();
   }
 
-  void _onDevicesReloaded(CurrentSceneDevicesReloadedEvent event) {
-    // Devices for the new scene have finished reloading. Refresh chores and
-    // exit loading state after refresh completes so the UI updates smoothly.
+  Future<void> _reloadChores() async {
+    // clear the list up-front so the UI can drop whatever was showing
+    _chores = [];
+    try {
+      _chores = _choreManager.getAvailableChores();
+    } catch (e, stackTrace) {
+      _logger?.e('Failed to reload chores: $e', error: e, stackTrace: stackTrace);
+      _error = e.toString();
+    }
+  }
+
+  void _onChoresChanged(ChoresChangedEvent event) {
+    _logger?.d('Chores changed for scene: ${event.scene.name}, reloading chores...');
     unawaited(() async {
       try {
+        _isLoading = true;
+        _error = null;
+        // notify early so callers can show a spinner immediately
+        notifyListeners();
         await _reloadChores();
       } finally {
         _isLoading = false;
@@ -90,8 +87,17 @@ class ChoresViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
-    _currentSceneChangedSub.cancel();
-    _devicesReloadedSub.cancel();
+    _choresChangedSub.cancel();
     super.dispose();
+  }
+
+  /// **TEST ONLY**: allow forcing the loading flag so widgets can react.
+  ///
+  /// The normal code path sets this when chores change events occur.  This
+  /// helper makes it easier to write deterministic unit/widget tests.
+  @visibleForTesting
+  void setLoadingFlag(bool loading) {
+    _isLoading = loading;
+    notifyListeners();
   }
 }

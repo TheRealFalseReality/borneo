@@ -14,7 +14,11 @@ abstract class IDeviceManager implements IDisposable {
 
   // Abstract properties and methods
   bool get isInitialized;
-  GlobalDevicesEventBus get allDeviceEvents;
+
+  /// Stream of all device-related events exposed by the manager.  The
+  /// concrete type is an [EventDispatcher] which allows callers to filter
+  /// by event type without depending on the old global bus.
+  EventDispatcher get allDeviceEvents;
   IKernel get kernel;
   Iterable<BoundDevice> get boundDevices;
   bool get isDiscoverying;
@@ -25,15 +29,15 @@ abstract class IDeviceManager implements IDisposable {
   int get wotThingCount;
 
   // Abstract methods
-  Future<void> initialize();
+  Future<void> initialize({CancellationToken? cancelToken});
   bool isBound(String deviceID);
   BoundDevice getBoundDevice(String deviceID);
   Iterable<BoundDevice> getBoundDevicesInCurrentScene();
-  Future<void> reloadAllDevices();
+  Future<void> reloadAllDevices({CancellationToken? cancelToken});
   Future<bool> tryBind(DeviceEntity device);
   Future<void> bind(DeviceEntity device);
   Future<void> unbind(String deviceID);
-  Future<void> delete(String id, {Transaction? tx});
+  Future<void> delete(String id, {Transaction? tx, CancellationToken? cancelToken});
   Future<void> update(String id, {Transaction? tx, String? name, String? groupID});
   Future<void> moveToGroup(String id, String newGroupID);
   Future<bool> isNewDevice(SupportedDeviceDescriptor matched, {Transaction? tx});
@@ -45,7 +49,6 @@ abstract class IDeviceManager implements IDisposable {
   Future<void> stopDiscovery();
 
   // WotThing methods
-  WotThing? getWotThing(String deviceID);
-  Future<WotThing?> getOrCreateWotThing(String deviceID);
+  WotThing getWotThing(String deviceID);
   bool hasWotThing(String deviceID);
 }

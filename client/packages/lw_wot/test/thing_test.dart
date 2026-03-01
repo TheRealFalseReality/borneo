@@ -1,10 +1,10 @@
+import 'package:lw_wot/types.dart';
 import 'package:test/test.dart';
 import 'package:lw_wot/thing.dart';
 import 'package:lw_wot/property.dart';
 import 'package:lw_wot/action.dart';
 import 'package:lw_wot/event.dart';
 import 'package:lw_wot/value.dart';
-import 'package:lw_wot/types.dart';
 
 // Test action for action testing
 class TestThingAction extends WotAction<dynamic> {
@@ -22,11 +22,10 @@ class TestThingAction extends WotAction<dynamic> {
 }
 
 // Mock subscriber for testing notifications
-class MockSubscriber extends WotSubscriber {
-  final List<String> receivedMessages = [];
+class MockSubscriber {
+  final List<WotMessage> receivedMessages = [];
 
-  @override
-  void send(String message) {
+  void call(WotMessage message) {
     receivedMessages.add(message);
   }
 }
@@ -47,11 +46,11 @@ void main() {
     group('Constructor and Basic Properties', () {
       test('constructor with string type', () {
         final singleTypeThing = WotThing(id: 'id1', title: 'TestThing', type: 'SingleType', description: 'desc');
-        expect(singleTypeThing.getId(), equals('id1'));
-        expect(singleTypeThing.getTitle(), equals('TestThing'));
-        expect(singleTypeThing.getType(), equals(['SingleType']));
-        expect(singleTypeThing.getDescription(), equals('desc'));
-        expect(singleTypeThing.getContext(), equals('https://webthings.io/schemas'));
+        expect(singleTypeThing.id, equals('id1'));
+        expect(singleTypeThing.title, equals('TestThing'));
+        expect(singleTypeThing.type, equals(['SingleType']));
+        expect(singleTypeThing.description, equals('desc'));
+        expect(singleTypeThing.context, equals('https://webthings.io/schemas'));
       });
 
       test('constructor with list type', () {
@@ -61,22 +60,22 @@ void main() {
           type: ['TypeA', 'TypeB'],
           description: 'multi desc',
         );
-        expect(multiTypeThing.getType(), equals(['TypeA', 'TypeB']));
+        expect(multiTypeThing.type, equals(['TypeA', 'TypeB']));
       });
 
       test('constructor with empty description', () {
         final noDescThing = WotThing(id: 'id3', title: 'NoDesc', type: ['Type'], description: '');
-        expect(noDescThing.getDescription(), equals(''));
+        expect(noDescThing.description, equals(''));
       });
 
       test('basic getters return correct values', () {
-        expect(thing.getId(), equals('test-thing-id'));
-        expect(thing.getTitle(), equals('Test Thing'));
-        expect(thing.getType(), equals(['TestDevice']));
-        expect(thing.getDescription(), equals('A test thing for testing'));
-        expect(thing.getContext(), equals('https://webthings.io/schemas'));
-        expect(thing.getHref(), equals('/'));
-        expect(thing.getUiHref(), isNull);
+        expect(thing.id, equals('test-thing-id'));
+        expect(thing.title, equals('Test Thing'));
+        expect(thing.type, equals(['TestDevice']));
+        expect(thing.description, equals('A test thing for testing'));
+        expect(thing.context, equals('https://webthings.io/schemas'));
+        expect(thing.href, equals('/'));
+        expect(thing.uiHref, isNull);
       });
     });
 
@@ -127,14 +126,14 @@ void main() {
         thing.addProperty(property);
 
         thing.setHrefPrefix('/api/v1');
-        expect(thing.getHref(), equals('/api/v1'));
-        expect(property.getHref(), startsWith('/api/v1'));
+        expect(thing.href, equals('/api/v1'));
+        expect(property.href, startsWith('/api/v1'));
       });
 
       test('setUiHref and getUiHref', () {
-        expect(thing.getUiHref(), isNull);
+        expect(thing.uiHref, isNull);
         thing.setUiHref('/ui/custom');
-        expect(thing.getUiHref(), equals('/ui/custom'));
+        expect(thing.uiHref, equals('/ui/custom'));
       });
 
       test('href prefix affects thing description links', () {
@@ -167,7 +166,7 @@ void main() {
 
         final found = thing.findProperty('temperature');
         expect(found, equals(testProperty));
-        expect(found?.getName(), equals('temperature'));
+        expect(found?.name, equals('temperature'));
       });
 
       test('removeProperty', () {
@@ -251,8 +250,8 @@ void main() {
         );
         final action = thing.performAction('testAction', {'param': 'value'});
         expect(action, isNotNull);
-        expect(action!.getName(), equals('testAction'));
-        expect(action.getInput(), equals({'param': 'value'}));
+        expect(action!.name, equals('testAction'));
+        expect(action.input, equals({'param': 'value'}));
       });
 
       test('performAction with non-existent action', () {
@@ -274,13 +273,13 @@ void main() {
         final action = thing.performAction('testAction', {});
         expect(action, isNotNull);
 
-        final found = thing.getAction('testAction', action!.getId());
+        final found = thing.getAction('testAction', action!.id);
         expect(found, equals(action));
 
-        final removed = thing.removeAction('testAction', action.getId());
+        final removed = thing.removeAction('testAction', action.id);
         expect(removed, isTrue);
 
-        final notFound = thing.getAction('testAction', action.getId());
+        final notFound = thing.getAction('testAction', action.id);
         expect(notFound, isNull);
       });
 
@@ -306,10 +305,10 @@ void main() {
         // Verify that actions were created successfully
         expect(action1, isNotNull);
         expect(action2, isNotNull);
-        expect(action1!.getName(), equals('action1'));
-        expect(action2!.getName(), equals('action1'));
-        expect(action1.getInput(), equals({'data': 1}));
-        expect(action2.getInput(), equals({'data': 2}));
+        expect(action1!.name, equals('action1'));
+        expect(action2!.name, equals('action1'));
+        expect(action1.input, equals({'data': 1}));
+        expect(action2.input, equals({'data': 2}));
 
         final allDescriptions = thing.getActionDescriptions();
         expect(allDescriptions, hasLength(2));
@@ -366,8 +365,8 @@ void main() {
       });
 
       test('addSubscriber and removeSubscriber', () {
-        thing.addSubscriber(subscriber1);
-        thing.addSubscriber(subscriber2);
+        thing.addSubscriber(subscriber1.call);
+        thing.addSubscriber(subscriber2.call);
 
         // Test property notification
         final property = WotProperty<int>(
@@ -382,7 +381,7 @@ void main() {
         expect(subscriber1.receivedMessages, hasLength(1));
         expect(subscriber2.receivedMessages, hasLength(1));
 
-        thing.removeSubscriber(subscriber1);
+        thing.removeSubscriber(subscriber1.call);
         thing.propertyNotify(property);
 
         expect(subscriber1.receivedMessages, hasLength(1)); // No new messages
@@ -391,8 +390,8 @@ void main() {
 
       test('addEventSubscriber and removeEventSubscriber', () {
         thing.addAvailableEvent('testEvent');
-        thing.addEventSubscriber('testEvent', subscriber1);
-        thing.addEventSubscriber('testEvent', subscriber2);
+        thing.addEventSubscriber('testEvent', subscriber1.call);
+        thing.addEventSubscriber('testEvent', subscriber2.call);
 
         final event = WotEvent<String>(thing: thing, name: 'testEvent', data: 'test data');
         thing.eventNotify(event);
@@ -400,7 +399,7 @@ void main() {
         expect(subscriber1.receivedMessages, hasLength(1));
         expect(subscriber2.receivedMessages, hasLength(1));
 
-        thing.removeEventSubscriber('testEvent', subscriber1);
+        thing.removeEventSubscriber('testEvent', subscriber1.call);
         thing.eventNotify(event);
 
         expect(subscriber1.receivedMessages, hasLength(1)); // No new messages
@@ -410,10 +409,10 @@ void main() {
       test('removeSubscriber removes from all events', () {
         thing.addAvailableEvent('event1');
         thing.addAvailableEvent('event2');
-        thing.addEventSubscriber('event1', subscriber1);
-        thing.addEventSubscriber('event2', subscriber1);
+        thing.addEventSubscriber('event1', subscriber1.call);
+        thing.addEventSubscriber('event2', subscriber1.call);
 
-        thing.removeSubscriber(subscriber1);
+        thing.removeSubscriber(subscriber1.call);
 
         final event1 = WotEvent<String>(thing: thing, name: 'event1', data: 'data');
         final event2 = WotEvent<String>(thing: thing, name: 'event2', data: 'data');
@@ -431,7 +430,7 @@ void main() {
 
       setUp(() {
         subscriber = MockSubscriber();
-        thing.addSubscriber(subscriber);
+        thing.addSubscriber(subscriber.call);
         property = WotProperty<int>(
           thing: thing,
           name: 'temp',
@@ -446,10 +445,8 @@ void main() {
 
         expect(subscriber.receivedMessages, hasLength(1));
         final message = subscriber.receivedMessages.first;
-        expect(message, contains('messageType'));
-        expect(message, contains('propertyStatus'));
-        expect(message, contains('temp'));
-        expect(message, contains('25'));
+        expect(message.messageType, equals(WotMessageType.propertyStatus));
+        expect(message.data['temp'], equals(25));
       });
       test('actionNotify sends correct message format', () {
         thing.addAvailableAction(
@@ -466,29 +463,28 @@ void main() {
         final action = thing.performAction('testAction', {})!;
 
         // Verify the action was created successfully
-        expect(action.getName(), equals('testAction'));
-        expect(action.getId(), equals('action-1'));
-        expect(action.getThing(), equals(thing));
+        expect(action.name, equals('testAction'));
+        expect(action.id, equals('action-1'));
+        expect(action.thing, equals(thing));
 
         // Check if notification was sent (performAction calls actionNotify)
         expect(subscriber.receivedMessages, hasLength(1));
         final message = subscriber.receivedMessages.first;
-        expect(message, contains('messageType'));
-        expect(message, contains('actionStatus'));
+        expect(message.messageType, equals(WotMessageType.actionStatus));
       });
 
       test('eventNotify sends correct message format', () {
         thing.addAvailableEvent('testEvent');
-        thing.addEventSubscriber('testEvent', subscriber);
+        thing.addEventSubscriber('testEvent', subscriber.call);
 
         final event = WotEvent<String>(thing: thing, name: 'testEvent', data: 'test data');
         thing.eventNotify(event);
 
         expect(subscriber.receivedMessages, hasLength(1));
         final message = subscriber.receivedMessages.first;
-        expect(message, contains('messageType'));
-        expect(message, contains('event'));
-        expect(message, contains('testEvent'));
+        expect(message.messageType, equals(WotMessageType.event));
+        expect(message.data['testEvent'], isNotNull);
+        expect(message.data['testEvent']['data'], equals('test data'));
       });
 
       test('eventNotify with unavailable event does nothing', () {
@@ -501,7 +497,7 @@ void main() {
       test('notification error handling', () {
         // Create a subscriber that throws an error
         final errorSubscriber = _ErrorSubscriber();
-        thing.addSubscriber(errorSubscriber);
+        thing.addSubscriber(errorSubscriber.call);
 
         // Should not throw an exception
         expect(() => thing.propertyNotify(property), returnsNormally);
@@ -533,8 +529,8 @@ void main() {
 
         // Set up subscriber
         final subscriber = MockSubscriber();
-        thing.addSubscriber(subscriber);
-        thing.addEventSubscriber('temperatureChanged', subscriber);
+        thing.addSubscriber(subscriber.call);
+        thing.addEventSubscriber('temperatureChanged', subscriber.call);
 
         // Set href prefix
         thing.setHrefPrefix('/api/things/temp-sensor');
@@ -620,8 +616,8 @@ void main() {
       test('thing with null/empty values', () {
         // Test with minimal constructor
         final minimalThing = WotThing(id: 'min', title: 'Minimal', type: [], description: '');
-        expect(minimalThing.getType(), isEmpty);
-        expect(minimalThing.getDescription(), isEmpty);
+        expect(minimalThing.type, isEmpty);
+        expect(minimalThing.description, isEmpty);
 
         final desc = minimalThing.asThingDescription();
         expect(desc.containsKey('description'), isFalse);
@@ -647,7 +643,7 @@ void main() {
         // Test with null input
         final action = thing.performAction('testAction', null);
         expect(action, isNotNull);
-        expect(action!.getInput(), isNull);
+        expect(action!.input, isNull);
       });
 
       test('concurrent property modifications', () {
@@ -673,9 +669,8 @@ void main() {
 }
 
 // Helper class for error testing
-class _ErrorSubscriber extends WotSubscriber {
-  @override
-  void send(String message) {
+class _ErrorSubscriber {
+  void call(WotMessage message) {
     throw Exception('Subscriber error');
   }
 }

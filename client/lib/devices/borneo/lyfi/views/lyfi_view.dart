@@ -3,6 +3,7 @@ import 'package:borneo_app/features/devices/models/device_entity.dart';
 import 'package:borneo_app/core/services/app_notification_service.dart';
 import 'package:event_bus/event_bus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_gettext/flutter_gettext/gettext_localizations.dart';
 import 'package:logger/logger.dart';
 import 'package:provider/provider.dart';
 
@@ -129,13 +130,13 @@ class _LyfiDeviceDetailsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
+      onPopInvokedWithResult: (didPop, result) async {
         if (didPop) {
           return;
         }
         final vm = context.read<LyfiViewModel>();
         if (!vm.isLocked && !vm.isSuspectedOffline) {
-          vm.toggleLock(true);
+          await vm.toggleLock(true);
         } else {
           Navigator.of(context).pop();
         }
@@ -143,12 +144,14 @@ class _LyfiDeviceDetailsScreen extends StatelessWidget {
       child: Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: NestedScrollView(
+          // turn off scrolling so the details screen remains fixed
+          physics: const NeverScrollableScrollPhysics(),
           headerSliverBuilder: (context, innerBoxIsScrolled) => [
             LyfiAppBar(onBack: () => goBack(context)),
             const LyfiBusyIndicatorSliver(),
             const LyfiStatusBannersSliver(),
           ],
-          body: const SafeArea(top: false, child: DashboardView(key: ValueKey('dashboard'))),
+          body: _DashboardRouteVisibilityGate(),
         ),
       ),
     );
@@ -156,13 +159,48 @@ class _LyfiDeviceDetailsScreen extends StatelessWidget {
 
   void goBack(BuildContext context) async {
     final vm = context.read<LyfiViewModel>();
-    if (vm.isLocked) {
+    if (!vm.isOnline || vm.isLocked) {
       Navigator.of(context).pop();
     } else {
       if (!vm.isSuspectedOffline) {
-        vm.toggleLock(true);
+        await vm.toggleLock(true);
       }
     }
+  }
+}
+
+class _DashboardRouteVisibilityGate extends StatelessWidget {
+  const _DashboardRouteVisibilityGate();
+
+  @override
+  Widget build(BuildContext context) {
+    final route = ModalRoute.of(context);
+    if (route == null) {
+      return const DashboardView(key: ValueKey('dashboard'));
+    }
+
+    final animations = <Listenable>[];
+    if (route.animation != null) {
+      animations.add(route.animation!);
+    }
+    if (route.secondaryAnimation != null) {
+      animations.add(route.secondaryAnimation!);
+    }
+
+    if (animations.isEmpty) {
+      return route.isCurrent
+          ? const DashboardView(key: ValueKey('dashboard'))
+          : const SizedBox.shrink(key: ValueKey('dashboard-paused'));
+    }
+
+    return AnimatedBuilder(
+      animation: Listenable.merge(animations),
+      builder: (context, child) {
+        return route.isCurrent
+            ? const DashboardView(key: ValueKey('dashboard'))
+            : const SizedBox.shrink(key: ValueKey('dashboard-paused'));
+      },
+    );
   }
 }
 
@@ -171,13 +209,15 @@ class LyfiView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final device = ModalRoute.of(context)!.settings.arguments as DeviceEntity;
+    final gt = GettextLocalizations.of(context);
     return ChangeNotifierProvider(
       create: (cb) => LyfiViewModel(
-        deviceID: device.id,
         deviceManager: cb.read<IDeviceManager>(),
         globalEventBus: cb.read<EventBus>(),
         notification: cb.read<IAppNotificationService>(),
+        wotThing: cb.read<IDeviceManager>().getWotThing(device.id),
         localeService: cb.read<ILocaleService>(),
+        gt: gt,
         logger: cb.read<Logger>(),
       ),
       builder: (context, child) {
@@ -196,10 +236,10 @@ class LyfiView extends StatelessWidget {
                       width: double.infinity,
                       child: LinearProgressIndicator(
                         backgroundColor: Colors.transparent,
-                        valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.onPrimary),
+                        valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
                       ),
                     ),
-                    Expanded(child: Container()),
+                    Expanded(child: const SizedBox.shrink()),
                   ],
                 ),
               );

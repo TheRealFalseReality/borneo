@@ -1,3 +1,4 @@
+import 'package:borneo_app/core/services/app_notification_service.dart';
 import 'package:borneo_app/core/services/devices/ble_provisioner.dart';
 import 'package:borneo_app/shared/view_models/abstract_screen_view_model.dart';
 import 'package:cancellation_token/cancellation_token.dart';
@@ -8,12 +9,20 @@ class WifiSelectionViewModel extends AbstractScreenViewModel {
   final IBleProvisioner _bleProvisioner;
   final String deviceName;
   final Logger _logger = Logger(); // Or inject
+  final IAppNotificationService? notificationService;
 
   List<WifiNetwork>? _networks;
   List<WifiNetwork>? get networks => _networks;
   final CancellationToken _scanCancelToken = CancellationToken();
 
-  WifiSelectionViewModel(this._bleProvisioner, this.deviceName, {required super.globalEventBus});
+  WifiSelectionViewModel(
+    this._bleProvisioner,
+    this.deviceName, {
+    required super.globalEventBus,
+    required super.gt,
+    super.logger,
+    this.notificationService,
+  });
 
   @override
   Future<void> onInitialize() async {
@@ -24,10 +33,17 @@ class WifiSelectionViewModel extends AbstractScreenViewModel {
     isBusy = true;
     notifyListeners();
     try {
+      /*
+      var deviceInfoPayload = await _bleProvisioner.fetchDeviceInfo(
+        deviceName: deviceName,
+        cancelToken: _scanCancelToken,
+      );
+      Future.delayed(Duration(milliseconds: 500)).asCancellable(_scanCancelToken);
+      */
       // Assuming PoP is empty string as decided
       _networks = await _bleProvisioner.scanWifiNetworks(deviceName, cancelToken: _scanCancelToken);
     } on CancelledException {
-      logger?.i('The scanning task has been cancelled.');
+      this.notificationService?.showWarning(super.gt.translate('The WiFi scanning has been cancelled.'));
     } catch (e, stackTrace) {
       _logger.e('Failed to scan wifi networks', error: e, stackTrace: stackTrace);
       notifyAppError(e.toString());
